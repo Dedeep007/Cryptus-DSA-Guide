@@ -11,17 +11,22 @@ import pRetry from "p-retry";
  * USAGE:
  * ```typescript
  * import { batchProcess, isRateLimitError } from "./replit_integrations/batch";
+ * import OpenAI from "openai";
+ *
+ * const openai = new OpenAI({
+ *   apiKey: process.env.AI_INTEGRATIONS_OPENROUTER_API_KEY,
+ *   baseURL: process.env.AI_INTEGRATIONS_OPENROUTER_BASE_URL,
+ * });
  *
  * const results = await batchProcess(
  *   artworks,
  *   async (artwork) => {
  *     // Your custom LLM logic here
  *     const response = await openai.chat.completions.create({
- *       model: "gpt-5.1",
+ *       model: "groq/mixtral-8x7b-32768",
  *       messages: [{ role: "user", content: `Categorize: ${artwork.name}` }],
- *       response_format: { type: "json_object" },
  *     });
- *     return JSON.parse(response.choices[0]?.message?.content || "{}");
+ *     return response.choices[0]?.message?.content || "";
  *   },
  *   { concurrency: 2, retries: 5 }
  * );
