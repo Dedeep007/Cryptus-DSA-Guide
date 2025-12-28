@@ -34,7 +34,7 @@ export function setupAuth(app: any) {
       {
         clientID: process.env.GOOGLE_CLIENT_ID || "dummy-client-id",
         clientSecret: process.env.GOOGLE_CLIENT_SECRET || "dummy-client-secret",
-        callbackURL: "http://localhost:5000/api/auth/google/callback",
+        callbackURL: process.env.GOOGLE_CALLBACK_URL || "http://localhost:5000/api/auth/google/callback",
       },
       async (accessToken: string, refreshToken: string, profile: any, done: (error: any, user?: any) => void) => {
         try {
