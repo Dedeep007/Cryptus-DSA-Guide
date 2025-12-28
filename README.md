@@ -76,6 +76,7 @@ SESSION_SECRET=your-super-secret-session-key-here
 # Google OAuth (from Google Cloud Console)
 GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your-google-client-secret
+GOOGLE_CALLBACK_URL=your-redirect-url
 
 # Environment
 NODE_ENV=development
