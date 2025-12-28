@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useTopics, useUserStats } from "@/hooks/use-curriculum";
 import { Sidebar, MobileNav } from "@/components/Sidebar";
+import { DifficultyBadge } from "@/components/DifficultyBadge";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -100,9 +101,9 @@ function Dashboard() {
                 {/* Difficulty breakdown */}
                 {stats.solved > 0 && (
                   <div className="flex gap-4 mt-3 text-xs">
-                    <span className="text-green-500">{stats.easyCount} Easy</span>
-                    <span className="text-yellow-500">{stats.mediumCount} Medium</span>
-                    <span className="text-red-500">{stats.hardCount} Hard</span>
+                    <span className="text-green-400 font-medium">{stats.easyCount} Easy</span>
+                    <span className="text-yellow-400 font-medium">{stats.mediumCount} Medium</span>
+                    <span className="text-red-400 font-medium">{stats.hardCount} Hard</span>
                   </div>
                 )}
               </div>
@@ -156,16 +157,7 @@ function Dashboard() {
                             <History className="w-3 h-3 mr-1" />
                             Continue
                           </Badge>
-                          <Badge
-                            variant="outline"
-                            className={
-                              lastProblem.difficulty === 'Easy' ? 'border-green-500/50 text-green-400 bg-green-500/10' :
-                                lastProblem.difficulty === 'Medium' ? 'border-yellow-500/50 text-yellow-400 bg-yellow-500/10' :
-                                  'border-red-500/50 text-red-400 bg-red-500/10'
-                            }
-                          >
-                            {lastProblem.difficulty}
-                          </Badge>
+                          <DifficultyBadge difficulty={lastProblem.difficulty} />
                         </div>
                         <h3 className="text-xl font-bold text-white group-hover:text-primary transition-colors">
                           {lastProblem.problemTitle}

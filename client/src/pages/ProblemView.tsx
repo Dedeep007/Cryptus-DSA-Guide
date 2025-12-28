@@ -40,6 +40,7 @@ import 'react-syntax-highlighter/dist/esm/languages/prism/javascript';
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { SolutionCodeBlock } from "@/components/SolutionCodeBlock";
 import { Badge } from "@/components/ui/badge";
+import { DifficultyBadge } from "@/components/DifficultyBadge";
 import { cn } from "@/lib/utils";
 import { setAIContext } from "@/components/AIAssistant";
 
@@ -479,12 +480,7 @@ export default function ProblemView() {
           <h1 className="font-bold text-white truncate text-sm md:text-base">
             {problem.title}
           </h1>
-          <span className={cn(
-            "text-[10px] md:text-xs px-2 py-0.5 rounded-full border shrink-0",
-            problem.difficulty === "Easy" ? "border-green-500/50 text-green-500 bg-green-500/10" :
-              problem.difficulty === "Medium" ? "border-yellow-500/50 text-yellow-500 bg-yellow-500/10" :
-                "border-red-500/50 text-red-500 bg-red-500/10"
-          )}>{problem.difficulty}</span>
+          <DifficultyBadge difficulty={problem.difficulty} />
         </div>
 
         <div className="flex items-center gap-1 md:gap-2 shrink-0">

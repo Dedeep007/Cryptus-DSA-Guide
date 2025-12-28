@@ -1,6 +1,7 @@
 import { useRoute, Link } from "wouter";
 import { useTopic, useTopicExamples } from "@/hooks/use-curriculum";
 import { Sidebar, MobileNav } from "@/components/Sidebar";
+import { DifficultyBadge } from "@/components/DifficultyBadge";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -517,17 +518,7 @@ export default function TopicView() {
                           </div>
                         </div>
                         <div className="flex items-center gap-4 pr-6">
-                          <Badge
-                            variant="outline"
-                            className={cn(
-                              "border-0 font-mono",
-                              problem.difficulty === "Easy" && "bg-green-500/10 text-green-500",
-                              problem.difficulty === "Medium" && "bg-yellow-500/10 text-yellow-500",
-                              problem.difficulty === "Hard" && "bg-red-500/10 text-red-500",
-                            )}
-                          >
-                            {problem.difficulty}
-                          </Badge>
+                          <DifficultyBadge difficulty={problem.difficulty} />
                           <div className="opacity-0 group-hover:opacity-100 transition-opacity">
                             <Button>Solve Problem</Button>
                           </div>

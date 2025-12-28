@@ -227,13 +227,14 @@ export class DatabaseStorage implements IStorage {
     let xp = 0;
 
     for (const [, { difficulty }] of Array.from(solvedProblems.entries())) {
-      if (difficulty === "Easy") {
+      const normalized = difficulty?.toLowerCase().trim();
+      if (normalized === "easy") {
         easyCount++;
         xp += XP_VALUES.Easy;
-      } else if (difficulty === "Medium") {
+      } else if (normalized === "medium") {
         mediumCount++;
         xp += XP_VALUES.Medium;
-      } else if (difficulty === "Hard") {
+      } else if (normalized === "hard") {
         hardCount++;
         xp += XP_VALUES.Hard;
       }
