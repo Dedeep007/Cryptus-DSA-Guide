@@ -20,19 +20,39 @@ const LANGUAGE_MAP: Record<string, { language: string; version: string }> = {
     javascript: { language: 'javascript', version: '18.15.0' },
 };
 
-function parseInputs(inputStr: string) {
-    const lines = inputStr.split(/[\n]/);
+function parseInputs(inputStr: string): Record<string, any> {
     const vars: Record<string, any> = {};
+    const lines = inputStr.trim().split(/[\n]/);
+
+    // Track unnamed values for later assignment to function params
+    const unnamedValues: string[] = [];
+
     lines.forEach(line => {
-        if (line.includes('=')) {
-            const parts = line.split('=');
+        const trimmedLine = line.trim();
+        if (!trimmedLine) return;
+
+        if (trimmedLine.includes('=')) {
+            const parts = trimmedLine.split('=');
             if (parts.length >= 2) {
                 const key = parts[0].trim();
                 const val = parts.slice(1).join('=').trim();
                 vars[key] = val;
             }
+        } else {
+            // Raw value without variable name (e.g., just "[1,2,3]" or "5")
+            unnamedValues.push(trimmedLine);
         }
     });
+
+    // If we have unnamed values but no named vars, assign them to default param names
+    if (Object.keys(vars).length === 0 && unnamedValues.length > 0) {
+        const defaultParamNames = ['root', 'head', 'nums', 'arr', 'n', 's', 'target', 'k'];
+        unnamedValues.forEach((val, index) => {
+            const paramName = defaultParamNames[index] || `arg${index}`;
+            vars[paramName] = val;
+        });
+    }
+
     return vars;
 }
 
@@ -78,6 +98,11 @@ function extractParamOrder(userCode: string, language: string): string[] {
 function getWrapper(language: string, input: string, userCode: string) {
     const vars = parseInputs(input);
     const varNames = Object.keys(vars);
+
+    // Debug log for tree problems
+    console.log('Input:', input);
+    console.log('Parsed vars:', vars);
+    console.log('varNames:', varNames);
 
     // Find the function name
     let funcName = "";
@@ -327,30 +352,58 @@ struct Node {
             let mainFooter = footer;
 
             if (usesTreeNode || usesListNode) {
+                // Get function signature to determine which params are TreeNode/ListNode
+                const funcSig = cleanCode.match(new RegExp(`\\w+\\s+${funcName}\\s*\\(([^)]*)\\)`));
+                const funcParams = funcSig ? funcSig[1] : '';
+
                 // Transform variable declarations to build tree/list
-                mainDecls = varNames.map(v => {
+                let treeVarCreated = false;
+                let listVarCreated = false;
+
+                mainDecls = varNames.map((v, index) => {
                     const val = vars[v];
-                    if (val.startsWith('[') || val.startsWith('{')) {
+                    if (val && (val.startsWith('[') || val.startsWith('{'))) {
                         const inner = val.replace(/[\[\]]/g, '').trim();
                         // Replace "null" with -1001 as marker
                         const processed = inner.replace(/null/gi, '-1001');
-                        if (usesTreeNode && (v === 'root' || v.includes('tree') || v.includes('node'))) {
+
+                        // Check if this is likely the first TreeNode parameter
+                        const isFirstArrayParam = index === 0 || !treeVarCreated;
+                        const isTreeNodeParam = usesTreeNode && (
+                            v === 'root' ||
+                            v.toLowerCase().includes('tree') ||
+                            v.toLowerCase().includes('node') ||
+                            funcParams.includes('TreeNode') && isFirstArrayParam
+                        );
+
+                        const isListNodeParam = usesListNode && (
+                            v === 'head' ||
+                            v.toLowerCase().includes('list') ||
+                            funcParams.includes('ListNode') && isFirstArrayParam
+                        );
+
+                        if (isTreeNodeParam && !treeVarCreated) {
+                            treeVarCreated = true;
                             return `vector<int> ${v}_arr = {${processed}};\nTreeNode* ${v} = buildTree(${v}_arr);`;
                         }
-                        if (usesListNode && (v === 'head' || v.includes('list') || v.includes('node'))) {
+                        if (isListNodeParam && !listVarCreated) {
+                            listVarCreated = true;
                             return `vector<int> ${v}_arr = {${processed}};\nListNode* ${v} = buildList(${v}_arr);`;
                         }
                         // Regular vector
                         return `vector<int> ${v} = {${inner}};`;
                     }
-                    if (!isNaN(Number(val))) {
+                    if (val && !isNaN(Number(val))) {
                         return `int ${v} = ${val};`;
                     }
-                    if (val.startsWith('"') || val.startsWith("'")) {
+                    if (val && (val.startsWith('"') || val.startsWith("'"))) {
                         return `string ${v} = ${val};`;
                     }
-                    return `auto ${v} = ${val};`;
-                }).join('\n');
+                    if (val) {
+                        return `auto ${v} = ${val};`;
+                    }
+                    return '';
+                }).filter(s => s).join('\n');
 
                 // Smart output for tree/list return types
                 if (funcName) {
