@@ -1,5 +1,6 @@
-import { db } from './server/db';
-import { problems, topics } from './shared/schema';
+import "dotenv/config";
+import { db } from '../server/db';
+import { problems, topics } from '../shared/schema';
 
 async function count() {
     const allProblems = await db.select().from(problems);

@@ -51,7 +51,7 @@ async function clearDatabase() {
 async function ingestCurriculum() {
   try {
     // Read the JSON file
-    const jsonPath = path.join(process.cwd(), 'curriculum-data.json');
+    const jsonPath = path.join(process.cwd(), 'json_store', 'curriculum-data.json');
     const jsonData = fs.readFileSync(jsonPath, 'utf-8');
     const curriculumData: CurriculumData[] = JSON.parse(jsonData);
 
@@ -59,17 +59,17 @@ async function ingestCurriculum() {
 
     for (let i = 0; i < curriculumData.length; i++) {
       const topicData = curriculumData[i];
-      
+
       // Handle different JSON structures
       const topicInfo = topicData.topic || topicData;
-      
+
       // Check if topic with this slug already exists
       const existingTopic = await db.select().from(schema.topics).where(eq(schema.topics.slug, topicInfo.slug));
       if (existingTopic.length > 0) {
         console.log(`\nSkipping duplicate topic: ${topicInfo.title} (slug: ${topicInfo.slug})`);
         continue;
       }
-      
+
       console.log(`\nIngesting topic: ${topicInfo.title}`);
 
       // Insert topic with order
@@ -106,9 +106,18 @@ async function ingestCurriculum() {
       }
       console.log(`Inserted code examples`);
 
+      // Aggregate all problem types
+      const allTopicProblems = [
+        ...(topicData.problems || []),
+        ...(topicData.learning || []),
+        ...(topicData.easy || []),
+        ...(topicData.medium || []),
+        ...(topicData.hard || [])
+      ];
+
       // Insert problems
-      for (let j = 0; j < topicData.problems.length; j++) {
-        const problem = topicData.problems[j];
+      for (let j = 0; j < allTopicProblems.length; j++) {
+        const problem = allTopicProblems[j];
         const [insertedProblem] = await db.insert(schema.problems).values({
           topicId: topic.id,
           title: problem.title,
@@ -118,6 +127,7 @@ async function ingestCurriculum() {
           testCases: JSON.stringify(problem.testCases),
           conceptExplanation: problem.conceptExplanation || 'This problem demonstrates key concepts from the topic.',
           workedExample: problem.workedExample || 'Example solution will be shown after attempting the problem.',
+          submissionFormat: problem.submissionFormat || 'No submission format provided.',
           order: j + 1,
         }).returning();
 

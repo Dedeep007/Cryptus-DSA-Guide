@@ -249,13 +249,17 @@ function getWrapper(language: string, input: string, userCode: string) {
             return aliasMatch;
         }
 
-        // 3. Smart "argN" match based on type heuristics
         const isArrayParam = ['nums', 'arr', 'matrix', 'grid', 'board', 'a', 'b'].some(a => p.includes(a));
         const isNumParam = ['n', 'm', 'k', 'size', 'len', 'target', 'val', 'x', 'low', 'high', 'mid'].some(n => p === n || p.includes(n));
         const isStringParam = p.startsWith('s') || p.includes('str') || p.includes('word');
 
+        const isDefaultNameMatch = (v: string) => {
+            const defaultNames = ['root', 'head', 'nums', 'arr', 'n', 's', 'target', 'k'];
+            return defaultNames.includes(v) || v.startsWith('arg');
+        };
+
         const argMatch = varNames.find(v => {
-            if (!v.startsWith('arg') || paramsUsed.has(v)) return false;
+            if (!isDefaultNameMatch(v) || paramsUsed.has(v)) return false;
             const val = String(vars[v]);
             const isArrayVal = val.startsWith('[') || val.startsWith('{');
             const isNumVal = !isNaN(Number(val));
@@ -272,15 +276,15 @@ function getWrapper(language: string, input: string, userCode: string) {
             return argMatch;
         }
 
-        // 4. Final fallback - take the first unused arg if types are unclear
-        const fallbackArg = varNames.find(v => v.startsWith('arg') && !paramsUsed.has(v));
+        // 4. Final fallback - take the first unused default/arg if types are unclear
+        const fallbackArg = varNames.find(v => isDefaultNameMatch(v) && !paramsUsed.has(v));
         if (fallbackArg) {
             paramsUsed.add(fallbackArg);
             return fallbackArg;
         }
 
         return param;
-    }).filter(v => varNames.includes(v) || ['n', 'm', 'size', 'numssize', 'len'].includes(v.toLowerCase()));
+    }).filter(v => varNames.includes(v) || ['n', 'm', 'size', 'numssize', 'len', 'root', 'head', 'target', 'k'].includes(v.toLowerCase()));
 
     // Fallback to input order if we couldn't match
     if (orderedArgs.length === 0) {
@@ -295,7 +299,7 @@ function getWrapper(language: string, input: string, userCode: string) {
 
     switch (language) {
         case 'python':
-            return `${userCode}\n\n${varNames.map(v => `${v} = ${vars[v]}`).join('\n')}\nresult = ${funcName}(${orderedArgs.join(', ')})\nif isinstance(result, list):\n    print('[' + ', '.join(map(str, result)) + ']')\nelif isinstance(result, bool):\n    print('true' if result else 'false')\nelse:\n    print(result)`;
+            return `import math\nimport collections\nimport heapq\nimport bisect\nfrom typing import *\n\n${userCode}\n\n${varNames.map(v => `${v} = ${vars[v]}`).join('\n')}\nresult = ${funcName}(${orderedArgs.join(', ')})\nif isinstance(result, list):\n    print('[' + ', '.join(map(str, result)) + ']')\nelif isinstance(result, bool):\n    print('true' if result else 'false')\nelse:\n    print(result)`;
 
         case 'javascript':
             return `${userCode}\n\n${varNames.map(v => `const ${v} = ${vars[v]};`).join('\n')}\nconst result = ${funcName}(${orderedArgs.join(', ')});\nif (Array.isArray(result)) {\n  console.log('[' + result.join(', ') + ']');\n} else if (typeof result === 'boolean') {\n  console.log(result ? 'true' : 'false');\n} else {\n  console.log(result);\n}`;
@@ -645,6 +649,9 @@ void __print_coll(const vector<T>& v) {
             // Detect what types Java function uses
             const usesArrayList = /ArrayList/.test(cleanCode);
             const usesList = /List\s*</.test(cleanCode);
+            const usesLong = /long/.test(cleanCode);
+            const usesDouble = /double/.test(cleanCode);
+            const usesFloat = /float/.test(cleanCode);
 
             const javaDecls = varNames.map(v => {
                 const val = vars[v];
@@ -653,14 +660,35 @@ void __print_coll(const vector<T>& v) {
                     if (usesArrayList || usesList) {
                         return `ArrayList<Integer> ${v} = new ArrayList<>(Arrays.asList(${inner.split(',').map(x => x.trim()).join(', ')}));`;
                     }
-                    return `int[] ${v} = {${inner}};`;
+                    const type = usesLong ? 'long[]' : 'int[]';
+                    return `${type} ${v} = {${inner}};`;
                 }
-                if (val.startsWith('"')) return `String ${v} = ${val};`;
+                if (val && val.startsWith('"')) return `String ${v} = ${val};`;
                 if (val === 'true' || val === 'false') return `boolean ${v} = ${val};`;
-                return `int ${v} = ${val};`;
+                if (val && !isNaN(Number(val))) {
+                    if (val.includes('.') || usesDouble) return `double ${v} = ${val};`;
+                    if (usesFloat) return `float ${v} = ${val};`;
+                    if (usesLong) return `long ${v} = ${val};`;
+                    return `int ${v} = ${val};`;
+                }
+                return `Object ${v} = ${val};`; // Fallback
             }).join('\n');
+
+            // Extract imports from userCode to place them outside the class
+            const importMatches = userCode.match(/^\s*import\s+.+;/gm) || [];
+            const userCodeWithoutImports = userCode.replace(/^\s*import\s+.+;/gm, '');
+
+            // If user already provided a class Solution or a main method, we have to be very careful.
+            // For now, let's assume they might want to use our main if they didn't provide one.
+            const hasMain = userCode.includes('public static void main');
+            const hasSolutionClass = userCode.includes('class Solution');
+
+            if (hasMain && hasSolutionClass) {
+                return `import java.util.*;\n${importMatches.join('\n')}\n${userCodeWithoutImports}`;
+            }
+
             const javaFooter = funcName ? `System.out.println(sol.${funcName}(${orderedArgs.join(', ')}));` : "";
-            return `import java.util.*;\n\npublic class Solution {\n${userCode}\n\npublic static void main(String[] args) {\n    Solution sol = new Solution();\n${javaDecls}\n    ${javaFooter}\n}\n}`;
+            return `import java.util.*;\n${importMatches.join('\n')}\n\npublic class Solution {\n${userCodeWithoutImports}\n\npublic static void main(String[] args) {\n    Solution sol = new Solution();\n${javaDecls}\n    ${javaFooter}\n}\n}`;
         }
 
         default:

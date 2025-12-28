@@ -100,7 +100,9 @@ function SubmissionSignature({ lang, signature }: { lang: string; signature: str
             }
           }}
         >
-          {signature}
+          {signature.includes('{') || (syntaxLang === 'python' && signature.includes(':'))
+            ? signature
+            : (syntaxLang === 'python' ? `${signature}:\n    pass` : `${signature} {\n    \n}`)}
         </SyntaxHighlighter>
       </div>
     </div>
@@ -285,51 +287,24 @@ const LANGUAGES = [
 ] as const;
 
 const DEFAULT_CODE: Record<string, string> = {
-  cpp: `// Write your C++ solution here
-#include <iostream>
-#include <vector>
-using namespace std;
-
-int main() {
-    // Your code here
+  cpp: `int solution(vector<int>& nums) {
     
-    return 0;
 }
 `,
-  python: `# Write your Python solution here
-
-def solution():
-    # Your code here
+  python: `def solution():
     pass
-
-if __name__ == "__main__":
-    solution()
 `,
-  c: `// Write your C solution here
-#include <stdio.h>
-
-int main() {
-    // Your code here
+  c: `int solution(int arr[], int n) {
     
-    return 0;
 }
 `,
-  java: `// Write your Java solution here
-import java.util.*;
-
-public class Solution {
-    public static void main(String[] args) {
-        // Your code here
-    }
+  java: `public int solution(int[] nums) {
+    
 }
 `,
-  javascript: `// Write your JavaScript solution here
-
-function solution() {
-    // Your code here
+  javascript: `function solution() {
+    
 }
-
-solution();
 `,
 };
 
@@ -352,14 +327,13 @@ export default function ProblemView() {
     if (sigLine && sigLine.includes('`')) {
       const signature = sigLine.split('`')[1];
       if (lang === 'python') {
-        return `${signature}:\n    # Your code goes here\n    pass`;
+        return `${signature}:\n    pass`;
       } else if (lang === 'cpp') {
-        return `#include <iostream>\n#include <vector>\n#include <string>\n#include <algorithm>\n\nusing namespace std;\n\n${signature} {\n    // Your code goes here\n    \n}`;
+        return `#include <iostream>\n#include <vector>\n#include <string>\n#include <algorithm>\n\nusing namespace std;\n\n${signature} {\n    \n}`;
       } else if (lang === 'java') {
-        const methodName = signature.match(/\w+(?=\s*\()/)?.[0] || 'solution';
-        return `class Solution {\n    ${signature} {\n        // Your code goes here\n        \n    }\n}`;
+        return `${signature} {\n    \n}`;
       } else {
-        return `${signature} {\n    // Your code goes here\n    \n}`;
+        return `${signature} {\n    \n}`;
       }
     }
 
