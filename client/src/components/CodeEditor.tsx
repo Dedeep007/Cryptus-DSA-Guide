@@ -9,14 +9,14 @@ interface CodeEditorProps {
   readOnly?: boolean;
 }
 
-export function CodeEditor({ initialValue, language = "javascript", onChange, readOnly = false }: CodeEditorProps) {
+export function CodeEditor({ initialValue, language = "cpp", onChange, readOnly = false }: CodeEditorProps) {
   const editorRef = useRef<any>(null);
   const [isMounted, setIsMounted] = useState(false);
 
   const handleEditorDidMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
     setIsMounted(true);
-    
+
     // Configure editor theme/settings
     monaco.editor.defineTheme('cryptus-dark', {
       base: 'vs-dark',
@@ -31,16 +31,17 @@ export function CodeEditor({ initialValue, language = "javascript", onChange, re
         'editor.lineHighlightBackground': '#1f1f2e',
       }
     });
-    
+
     monaco.editor.setTheme('cryptus-dark');
   };
 
   return (
     <div className="h-full w-full relative group">
       <Editor
+        key={language} // Force re-mount when language changes
         height="100%"
-        defaultLanguage={language}
-        defaultValue={initialValue}
+        language={language}
+        value={initialValue}
         theme="vs-dark"
         onChange={onChange}
         onMount={handleEditorDidMount}

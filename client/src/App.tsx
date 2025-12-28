@@ -8,9 +8,13 @@ import { Loader2 } from "lucide-react";
 
 import NotFound from "@/pages/not-found";
 import Landing from "@/pages/Landing";
+import Login from "@/pages/Login";
+import Register from "@/pages/Register";
 import Dashboard from "@/pages/Dashboard";
 import TopicView from "@/pages/TopicView";
 import ProblemView from "@/pages/ProblemView";
+import Leaderboard from "@/pages/Leaderboard";
+import { AIAssistant } from "@/components/AIAssistant";
 
 function Router() {
   const { user, isLoading } = useAuth();
@@ -23,15 +27,14 @@ function Router() {
     );
   }
 
-  if (!user) {
-    return <Landing />;
-  }
-
   return (
     <Switch>
-      <Route path="/" component={Dashboard} />
-      <Route path="/topic/:slug" component={TopicView} />
-      <Route path="/problem/:id" component={ProblemView} />
+      <Route path="/" component={user ? Dashboard : Landing} />
+      <Route path="/login" component={Login} />
+      <Route path="/register" component={Register} />
+      <Route path="/topic/:slug" component={user ? TopicView : Landing} />
+      <Route path="/problem/:id" component={user ? ProblemView : Landing} />
+      <Route path="/leaderboard" component={user ? Leaderboard : Landing} />
       <Route component={NotFound} />
     </Switch>
   );
@@ -42,6 +45,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <Router />
+        <AIAssistant />
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>

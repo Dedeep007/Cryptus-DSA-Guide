@@ -3,12 +3,12 @@ import { useAuth } from "@/hooks/use-auth";
 import { useTopics } from "@/hooks/use-curriculum";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { 
-  Code2, 
-  LayoutDashboard, 
-  Trophy, 
-  LogOut, 
-  ChevronRight, 
+import {
+  Code2,
+  LayoutDashboard,
+  Trophy,
+  LogOut,
+  ChevronRight,
   BookOpen,
   Terminal,
   Brain
@@ -22,36 +22,40 @@ export function Sidebar() {
 
   return (
     <div className="h-screen w-64 bg-card border-r border-border flex flex-col fixed left-0 top-0 z-20">
-      <div className="p-6 border-b border-border/50">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center shadow-lg shadow-primary/20">
-            <Code2 className="w-6 h-6 text-white" />
-          </div>
-          <div>
-            <h1 className="font-display text-xl font-bold tracking-tight text-white">CRYPTUS</h1>
-            <p className="text-xs text-muted-foreground font-mono">Master DSA</p>
+      <Link href="/">
+        <div className="p-6 border-b border-border/50 cursor-pointer hover:bg-white/5 transition-colors">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center shadow-lg shadow-primary/20">
+              <Code2 className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h1 className="font-display text-xl font-bold tracking-tight text-white">CRYPTUS</h1>
+              <p className="text-xs text-muted-foreground font-mono">Master DSA</p>
+            </div>
           </div>
         </div>
-      </div>
+      </Link>
 
       <ScrollArea className="flex-1 py-4 px-3">
         <div className="space-y-1 mb-8">
           <Link href="/">
             <div className={cn(
-              "nav-item cursor-pointer", 
+              "nav-item cursor-pointer",
               location === "/" && "active"
             )}>
               <LayoutDashboard className="w-4 h-4" />
               <span>Dashboard</span>
             </div>
           </Link>
-          <div className={cn(
-            "nav-item cursor-pointer opacity-50 cursor-not-allowed" 
-            // Placeholder for future feature
-          )}>
-            <Trophy className="w-4 h-4" />
-            <span>Leaderboard</span>
-          </div>
+          <Link href="/leaderboard">
+            <div className={cn(
+              "nav-item cursor-pointer",
+              location === "/leaderboard" && "active"
+            )}>
+              <Trophy className="w-4 h-4" />
+              <span>Leaderboard</span>
+            </div>
+          </Link>
         </div>
 
         <div className="px-4 mb-2">
@@ -84,18 +88,26 @@ export function Sidebar() {
       <div className="p-4 border-t border-border/50 bg-black/20">
         {user ? (
           <div className="flex items-center gap-3 mb-4 p-2 rounded-lg bg-white/5">
-            <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold">
-              {user.firstName?.[0] || user.email?.[0] || 'U'}
-            </div>
+            {user.profileImageUrl ? (
+              <img
+                src={user.profileImageUrl}
+                alt={user.firstName || 'User'}
+                className="w-8 h-8 rounded-full object-cover ring-2 ring-primary/30"
+              />
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold">
+                {user.firstName?.[0] || user.email?.[0] || 'U'}
+              </div>
+            )}
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate text-white">{user.firstName || 'User'}</p>
               <p className="text-xs text-muted-foreground truncate">{user.email}</p>
             </div>
           </div>
         ) : null}
-        
-        <Button 
-          variant="outline" 
+
+        <Button
+          variant="outline"
           className="w-full justify-start gap-2 hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30 transition-colors"
           onClick={() => logout()}
         >

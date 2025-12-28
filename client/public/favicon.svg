@@ -1,0 +1,19 @@
+<svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#9d5bd2" /> <!-- Primary: hsl(265, 85%, 65%) -->
+      <stop offset="100%" stop-color="#17cece" /> <!-- Secondary: hsl(180, 80%, 45%) -->
+    </linearGradient>
+    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="0" dy="4" stdDeviation="4" flood-color="#9d5bd2" flood-opacity="0.2"/>
+    </filter>
+  </defs>
+  
+  <rect width="40" height="40" rx="10" fill="url(#grad)" filter="url(#shadow)" />
+  
+  <g transform="translate(8, 8)">
+    <path d="M18 16L22 12L18 8" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M6 8L2 12L6 16" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M14.5 4L9.5 20" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

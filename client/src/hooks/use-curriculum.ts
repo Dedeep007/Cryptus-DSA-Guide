@@ -44,23 +44,40 @@ export function useProblem(id: number) {
 }
 
 // Submissions
+// Run Code (Testing)
+export function useRunCode() {
+  return useMutation({
+    mutationFn: async ({ id, code, language }: { id: number; code: string; language: string }) => {
+      const url = buildUrl(api.problems.run.path, { id });
+      const res = await fetch(url, {
+        method: api.problems.run.method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, language }),
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to run code");
+      }
+      return api.problems.run.responses[200].parse(await res.json());
+    },
+  });
+}
+
+// Submissions
 export function useSubmitProblem() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, code, status }: { id: number; code: string; status: 'passed' | 'failed' }) => {
+    mutationFn: async ({ id, code, language }: { id: number; code: string; language: string }) => {
       const url = buildUrl(api.problems.submit.path, { id });
       const res = await fetch(url, {
         method: api.problems.submit.method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, status }),
+        body: JSON.stringify({ code, language }),
         credentials: "include",
       });
-      
+
       if (!res.ok) {
-        if (res.status === 400) {
-           // Handle validation error if needed
-           throw new Error("Invalid submission");
-        }
         throw new Error("Failed to submit");
       }
       return api.problems.submit.responses[201].parse(await res.json());
@@ -81,3 +98,73 @@ export function useSubmissions() {
     },
   });
 }
+
+export interface UserStats {
+  solved: number;
+  total: number;
+  streak: number;
+  xp: number;
+  easyCount: number;
+  mediumCount: number;
+  hardCount: number;
+}
+
+export function useTopicExamples(slug: string) {
+  return useQuery({
+    queryKey: [`/api/topics/${slug}/examples`],
+    queryFn: async () => {
+      const res = await fetch(`/api/topics/${slug}/examples`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch topic examples");
+      return res.json();
+    },
+    enabled: !!slug,
+  });
+}
+
+export function useTopicExample(slug: string, language: string) {
+  return useQuery({
+    queryKey: [`/api/topics/${slug}/examples/${language}`],
+    queryFn: async () => {
+      const res = await fetch(`/api/topics/${slug}/examples/${language}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch topic example");
+      return res.json();
+    },
+    enabled: !!slug && !!language,
+  });
+}
+
+export function useCodeSnippets(problemId: number) {
+  return useQuery({
+    queryKey: [`/api/problems/${problemId}/code`],
+    queryFn: async () => {
+      const res = await fetch(`/api/problems/${problemId}/code`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch code snippets");
+      return res.json();
+    },
+    enabled: !!problemId,
+  });
+}
+
+export function useUserStats() {
+  return useQuery({
+    queryKey: [api.user.stats.path],
+    queryFn: async () => {
+      const res = await fetch(api.user.stats.path, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch user stats");
+      return api.user.stats.responses[200].parse(await res.json());
+    },
+  });
+}
+
+export function useLeaderboard() {
+  return useQuery({
+    queryKey: [api.leaderboard.list.path],
+    queryFn: async () => {
+      const res = await fetch(api.leaderboard.list.path, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch leaderboard");
+      return api.leaderboard.list.responses[200].parse(await res.json());
+    },
+    refetchInterval: 5 * 60 * 1000, // Auto-refresh every 5 minutes
+  });
+}
+

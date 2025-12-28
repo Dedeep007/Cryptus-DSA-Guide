@@ -1,44 +1,77 @@
+import { useState, useEffect } from "react";
 import { useAuth } from "@/hooks/use-auth";
-import { useTopics } from "@/hooks/use-curriculum";
+import { useTopics, useUserStats } from "@/hooks/use-curriculum";
 import { Sidebar } from "@/components/Sidebar";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Link } from "wouter";
-import { 
-  Play, 
-  CheckCircle2, 
-  Circle, 
+import {
+  Play,
+  CheckCircle2,
+  Circle,
   Trophy,
   Flame,
-  Target
+  Target,
+  History
 } from "lucide-react";
+
+// XP values for reference
+const XP_INFO = {
+  Easy: 50,
+  Medium: 100,
+  Hard: 200,
+};
 
 function Dashboard() {
   const { user, isLoading: authLoading } = useAuth();
   const { data: topics, isLoading: topicsLoading } = useTopics();
+  const { data: userStats, isLoading: statsLoading } = useUserStats();
+
+  // Last visited problem for "Continue Learning"
+  const [lastProblem, setLastProblem] = useState<{
+    problemId: number;
+    problemTitle: string;
+    difficulty: string;
+    topicId: number;
+    timestamp: number;
+  } | null>(null);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('cryptus_last_problem');
+      if (saved) {
+        setLastProblem(JSON.parse(saved));
+      }
+    } catch (e) {
+      console.error('Error reading last problem:', e);
+    }
+  }, []);
 
   if (authLoading || topicsLoading) {
     return <DashboardSkeleton />;
   }
 
-  // Placeholder stats - real app would calculate from submissions
+  // Use real stats from API
   const stats = {
-    solved: 12,
-    total: 150,
-    streak: 3,
-    xp: 2400
+    solved: userStats?.solved || 0,
+    total: userStats?.total || 0,
+    streak: userStats?.streak || 0,
+    xp: userStats?.xp || 0,
+    easyCount: userStats?.easyCount || 0,
+    mediumCount: userStats?.mediumCount || 0,
+    hardCount: userStats?.hardCount || 0,
   };
-  
-  const progressPercentage = Math.round((stats.solved / stats.total) * 100);
+
+  const progressPercentage = stats.total > 0 ? Math.round((stats.solved / stats.total) * 100) : 0;
 
   return (
     <div className="flex min-h-screen bg-background">
       <Sidebar />
       <div className="flex-1 pl-64">
         <div className="max-w-6xl mx-auto p-8 space-y-8">
-          
+
           {/* Welcome Header */}
           <header className="space-y-2">
             <h1 className="text-3xl md:text-4xl font-display font-bold text-white">
@@ -63,6 +96,14 @@ function Dashboard() {
                   <span className="text-muted-foreground mb-1">/ {stats.total} Solved</span>
                 </div>
                 <Progress value={progressPercentage} className="h-2 bg-black/40" />
+                {/* Difficulty breakdown */}
+                {stats.solved > 0 && (
+                  <div className="flex gap-4 mt-3 text-xs">
+                    <span className="text-green-500">{stats.easyCount} Easy</span>
+                    <span className="text-yellow-500">{stats.mediumCount} Medium</span>
+                    <span className="text-red-500">{stats.hardCount} Hard</span>
+                  </div>
+                )}
               </div>
             </Card>
 
@@ -73,8 +114,11 @@ function Dashboard() {
               </div>
               <div className="flex items-end gap-2">
                 <span className="text-4xl font-bold font-mono text-white">{stats.streak}</span>
-                <span className="text-muted-foreground mb-1">Days</span>
+                <span className="text-muted-foreground mb-1">{stats.streak === 1 ? 'Day' : 'Days'}</span>
               </div>
+              {stats.streak === 0 && (
+                <p className="text-xs text-muted-foreground mt-2">Solve a problem to start your streak!</p>
+              )}
             </Card>
 
             <Card className="p-6 bg-card border-border/50 hover:border-border transition-colors">
@@ -83,8 +127,12 @@ function Dashboard() {
                 <span className="font-semibold uppercase text-xs tracking-wider">Total XP</span>
               </div>
               <div className="flex items-end gap-2">
-                <span className="text-4xl font-bold font-mono text-white">{stats.xp}</span>
+                <span className="text-4xl font-bold font-mono text-white">{stats.xp.toLocaleString()}</span>
                 <span className="text-muted-foreground mb-1">XP</span>
+              </div>
+              {/* XP breakdown tooltip */}
+              <div className="text-xs text-muted-foreground mt-2">
+                Easy: +{XP_INFO.Easy} • Medium: +{XP_INFO.Medium} • Hard: +{XP_INFO.Hard}
               </div>
             </Card>
           </div>
@@ -96,8 +144,42 @@ function Dashboard() {
               Continue Learning
             </h2>
             <div className="grid grid-cols-1 gap-4">
-              {/* Fake "Next up" logic - just pick the first topic */}
-              {topics && topics.length > 0 && (
+              {/* Show last visited problem if available */}
+              {lastProblem ? (
+                <Link href={`/problem/${lastProblem.problemId}`}>
+                  <div className="glass-panel p-6 rounded-2xl cursor-pointer hover:bg-white/5 transition-all group border border-primary/20 shadow-lg shadow-primary/5">
+                    <div className="flex items-start justify-between">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <Badge variant="outline" className="border-orange-500/50 text-orange-400 bg-orange-500/10">
+                            <History className="w-3 h-3 mr-1" />
+                            Continue
+                          </Badge>
+                          <Badge
+                            variant="outline"
+                            className={
+                              lastProblem.difficulty === 'Easy' ? 'border-green-500/50 text-green-400 bg-green-500/10' :
+                                lastProblem.difficulty === 'Medium' ? 'border-yellow-500/50 text-yellow-400 bg-yellow-500/10' :
+                                  'border-red-500/50 text-red-400 bg-red-500/10'
+                            }
+                          >
+                            {lastProblem.difficulty}
+                          </Badge>
+                        </div>
+                        <h3 className="text-xl font-bold text-white group-hover:text-primary transition-colors">
+                          {lastProblem.problemTitle}
+                        </h3>
+                        <p className="text-muted-foreground text-sm">
+                          Pick up where you left off
+                        </p>
+                      </div>
+                      <div className="h-10 w-10 rounded-full bg-primary flex items-center justify-center text-white shadow-lg group-hover:scale-110 transition-transform">
+                        <Play className="w-4 h-4 fill-white ml-0.5" />
+                      </div>
+                    </div>
+                  </div>
+                </Link>
+              ) : topics && topics.length > 0 ? (
                 <Link href={`/topic/${topics[0].slug}`}>
                   <div className="glass-panel p-6 rounded-2xl cursor-pointer hover:bg-white/5 transition-all group border border-primary/20 shadow-lg shadow-primary/5">
                     <div className="flex items-start justify-between">
@@ -118,7 +200,7 @@ function Dashboard() {
                     </div>
                   </div>
                 </Link>
-              )}
+              ) : null}
             </div>
           </section>
 
@@ -176,19 +258,19 @@ export default Dashboard;
 // Little helper
 function ChevronRight(props: any) {
   return (
-    <svg 
+    <svg
       {...props}
-      xmlns="http://www.w3.org/2000/svg" 
-      width="24" 
-      height="24" 
-      viewBox="0 0 24 24" 
-      fill="none" 
-      stroke="currentColor" 
-      strokeWidth="2" 
-      strokeLinecap="round" 
-      strokeLinejoin="round" 
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
     >
-      <path d="m9 18 6-6-6-6"/>
+      <path d="m9 18 6-6-6-6" />
     </svg>
   );
 }

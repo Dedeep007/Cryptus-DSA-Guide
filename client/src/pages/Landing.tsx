@@ -7,15 +7,20 @@ export default function Landing() {
       {/* Navigation */}
       <nav className="border-b border-white/5 bg-background/50 backdrop-blur-md sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <a href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity cursor-pointer">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-secondary flex items-center justify-center shadow-lg shadow-primary/20">
               <Code2 className="w-5 h-5 text-white" />
             </div>
             <span className="font-display font-bold text-xl tracking-tight text-white">CRYPTUS</span>
-          </div>
-          <a href="/api/login">
-            <Button>Login with Replit</Button>
           </a>
+          <div className="flex items-center gap-4">
+            <a href="/login">
+              <Button variant="outline">Login</Button>
+            </a>
+            <a href="/register">
+              <Button>Sign Up</Button>
+            </a>
+          </div>
         </div>
       </nav>
 
@@ -30,21 +35,21 @@ export default function Landing() {
             <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
             Systematic Learning Path
           </div>
-          
+
           <h1 className="font-display text-5xl md:text-7xl font-bold tracking-tight text-white leading-[1.1]">
             Master Data Structures<br />
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-secondary">
               & Algorithms
             </span>
           </h1>
-          
+
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-            Follow the curated Striver's A2Z DSA Sheet path. 
+            Follow the curated Striver's A2Z DSA Sheet path.
             Learn concepts, visualize examples, and solve problems with an AI mentor by your side.
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
-            <a href="/api/login">
+            <a href="/login">
               <Button size="lg" className="h-14 px-8 text-lg rounded-full shadow-xl shadow-primary/20 hover:scale-105 transition-transform">
                 Start Learning Now <ArrowRight className="ml-2 w-5 h-5" />
               </Button>
@@ -63,7 +68,7 @@ export default function Landing() {
               Don't get lost. Follow a proven step-by-step roadmap from basics to advanced topics.
             </p>
           </div>
-          
+
           <div className="glass-panel p-8 rounded-2xl text-left hover:border-secondary/50 transition-colors group">
             <div className="w-12 h-12 rounded-xl bg-secondary/10 flex items-center justify-center mb-6 text-secondary group-hover:scale-110 transition-transform">
               <Zap className="w-6 h-6" />
@@ -73,7 +78,7 @@ export default function Landing() {
               Stuck? Ask your personal AI mentor for hints, explanations, and code reviews instantly.
             </p>
           </div>
-          
+
           <div className="glass-panel p-8 rounded-2xl text-left hover:border-accent/50 transition-colors group">
             <div className="w-12 h-12 rounded-xl bg-accent/10 flex items-center justify-center mb-6 text-accent group-hover:scale-110 transition-transform">
               <Users className="w-6 h-6" />

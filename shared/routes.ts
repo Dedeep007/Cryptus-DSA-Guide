@@ -41,15 +41,41 @@ export const api = {
         404: errorSchemas.notFound,
       },
     },
+    run: {
+      method: 'POST' as const,
+      path: '/api/problems/:id/run',
+      input: z.object({
+        code: z.string(),
+        language: z.string(),
+      }),
+      responses: {
+        200: z.array(z.object({
+          input: z.string(),
+          expected: z.string(),
+          actual: z.string(),
+          passed: z.boolean(),
+          error: z.string().optional(),
+        })),
+        400: errorSchemas.validation,
+      },
+    },
     submit: {
       method: 'POST' as const,
       path: '/api/problems/:id/submit',
       input: z.object({
         code: z.string(),
-        status: z.enum(['passed', 'failed']),
+        language: z.string(),
       }),
       responses: {
-        201: z.custom<typeof submissions.$inferSelect>(),
+        201: z.object({
+          submission: z.custom<typeof submissions.$inferSelect>(),
+          results: z.array(z.object({
+            input: z.string(),
+            expected: z.string(),
+            actual: z.string(),
+            passed: z.boolean(),
+          })),
+        }),
         400: errorSchemas.validation,
       },
     },
@@ -62,7 +88,42 @@ export const api = {
         200: z.array(z.custom<typeof submissions.$inferSelect>()),
       },
     },
-  }
+  },
+  user: {
+    stats: {
+      method: 'GET' as const,
+      path: '/api/user/stats',
+      responses: {
+        200: z.object({
+          solved: z.number(),
+          total: z.number(),
+          streak: z.number(),
+          xp: z.number(),
+          easyCount: z.number(),
+          mediumCount: z.number(),
+          hardCount: z.number(),
+        }),
+      },
+    },
+  },
+  leaderboard: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/leaderboard',
+      responses: {
+        200: z.array(z.object({
+          rank: z.number(),
+          userId: z.string(),
+          firstName: z.string(),
+          lastName: z.string(),
+          profileImageUrl: z.string().nullable(),
+          xp: z.number(),
+          solved: z.number(),
+          streak: z.number(),
+        })),
+      },
+    },
+  },
 };
 
 export function buildUrl(path: string, params?: Record<string, string | number>): string {
