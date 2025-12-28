@@ -8,3 +8,4 @@ vite.config.ts.*
 .local
 json_store
 Strivers-A2Z-DSA-Sheet-main/
+migrations/
