@@ -22,34 +22,60 @@ const LANGUAGE_MAP: Record<string, { language: string; version: string }> = {
 
 function parseInputs(inputStr: string): Record<string, any> {
     const vars: Record<string, any> = {};
-    const lines = inputStr.trim().split(/[\n]/);
+    const normalized = inputStr.trim();
 
-    // Track unnamed values for later assignment to function params
+    // Split by comma but respect brackets
+    const segments: string[] = [];
+    let depth = 0;
+    let current = '';
+
+    for (let i = 0; i < normalized.length; i++) {
+        const char = normalized[i];
+        if (char === '[' || char === '{' || char === '(') depth++;
+        if (char === ']' || char === '}' || char === ')') depth--;
+
+        if ((char === ',' || char === '\n') && depth === 0) {
+            if (current.trim()) segments.push(current.trim());
+            current = '';
+        } else {
+            current += char;
+        }
+    }
+    if (current.trim()) segments.push(current.trim());
+
+    // Track unnamed values
     const unnamedValues: string[] = [];
 
-    lines.forEach(line => {
-        const trimmedLine = line.trim();
-        if (!trimmedLine) return;
+    // Parse each segment - handle both "key = value" and "key: value"
+    segments.forEach(segment => {
+        if (!segment) return;
 
-        if (trimmedLine.includes('=')) {
-            const parts = trimmedLine.split('=');
-            if (parts.length >= 2) {
-                const key = parts[0].trim();
-                const val = parts.slice(1).join('=').trim();
-                vars[key] = val;
-            }
-        } else {
-            // Raw value without variable name (e.g., just "[1,2,3]" or "5")
-            unnamedValues.push(trimmedLine);
+        // Match "key = value" or "key: value"
+        const match = segment.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*[:=]\s*(.+)$/);
+
+        if (match) {
+            const key = match[1].trim();
+            const val = match[2].trim();
+            vars[key] = val;
+        } else if (segment.startsWith('[') || segment.startsWith('{') ||
+            !isNaN(Number(segment)) || segment.startsWith('"') || segment.startsWith("'")) {
+            unnamedValues.push(segment);
         }
     });
 
-    // If we have unnamed values but no named vars, assign them to default param names
+    // Assign unnamed values to default param names
     if (Object.keys(vars).length === 0 && unnamedValues.length > 0) {
         const defaultParamNames = ['root', 'head', 'nums', 'arr', 'n', 's', 'target', 'k'];
         unnamedValues.forEach((val, index) => {
-            const paramName = defaultParamNames[index] || `arg${index}`;
-            vars[paramName] = val;
+            vars[defaultParamNames[index] || `arg${index}`] = val;
+        });
+    } else if (unnamedValues.length > 0) {
+        // Mix of named and unnamed - assign unnamed to remaining defaults
+        const existingKeys = Object.keys(vars);
+        const defaultParamNames = ['root', 'head', 'nums', 'arr', 'n', 's', 'target', 'k']
+            .filter(n => !existingKeys.includes(n));
+        unnamedValues.forEach((val, index) => {
+            if (defaultParamNames[index]) vars[defaultParamNames[index]] = val;
         });
     }
 
@@ -98,11 +124,6 @@ function extractParamOrder(userCode: string, language: string): string[] {
 function getWrapper(language: string, input: string, userCode: string) {
     const vars = parseInputs(input);
     const varNames = Object.keys(vars);
-
-    // Debug log for tree problems
-    console.log('Input:', input);
-    console.log('Parsed vars:', vars);
-    console.log('varNames:', varNames);
 
     // Find the function name
     let funcName = "";
@@ -368,7 +389,11 @@ struct Node {
                         const processed = inner.replace(/null/gi, '-1001');
 
                         // Check if this is likely the first TreeNode parameter
-                        const isFirstArrayParam = index === 0 || !treeVarCreated;
+                        const isFirstArrayParam = index === 0 || (!treeVarCreated && !listVarCreated);
+
+                        // If code uses ListNode but NOT TreeNode, and var is 'root', treat as 'head'
+                        const isListOnlyCode = usesListNode && !usesTreeNode;
+
                         const isTreeNodeParam = usesTreeNode && (
                             v === 'root' ||
                             v.toLowerCase().includes('tree') ||
@@ -379,7 +404,9 @@ struct Node {
                         const isListNodeParam = usesListNode && (
                             v === 'head' ||
                             v.toLowerCase().includes('list') ||
-                            funcParams.includes('ListNode') && isFirstArrayParam
+                            funcParams.includes('ListNode') && isFirstArrayParam ||
+                            // If this is a ListNode-only problem and var is 'root', treat as head
+                            (isListOnlyCode && v === 'root' && isFirstArrayParam)
                         );
 
                         if (isTreeNodeParam && !treeVarCreated) {
