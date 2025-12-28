@@ -1,87 +1,18 @@
 /**
- * Test Runner for Problem Solutions
- * Runs all solutions against their test cases to validate the executor
+ * LIVE execution test for Arrays problems
+ * Uses the actual executor to run solution code against Piston API
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+// @ts-ignore
+import { executeCode } from '../server/executor';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Read curriculum data
 const curriculumPath = path.join(__dirname, '../json_store/curriculum-data.json');
-
-interface TestCase {
-    input: string;
-    output: string;
-}
-
-interface Solution {
-    language: string;
-    code: string;
-}
-
-interface Problem {
-    title: string;
-    difficulty: string;
-    testCases: TestCase[];
-    solutions: Solution[];
-}
-
-interface Topic {
-    topic: { slug: string; title: string };
-    problems: Problem[];
-}
-
-// Simple executor simulation - just parse and log what would be generated
-function parseInputs(inputStr: string): Record<string, any> {
-    const vars: Record<string, any> = {};
-    const normalized = inputStr.trim();
-
-    const segments: string[] = [];
-    let depth = 0;
-    let current = '';
-
-    for (let i = 0; i < normalized.length; i++) {
-        const char = normalized[i];
-        if (char === '[' || char === '{' || char === '(') depth++;
-        if (char === ']' || char === '}' || char === ')') depth--;
-
-        if ((char === ',' || char === '\n') && depth === 0) {
-            if (current.trim()) segments.push(current.trim());
-            current = '';
-        } else {
-            current += char;
-        }
-    }
-    if (current.trim()) segments.push(current.trim());
-
-    const unnamedValues: string[] = [];
-
-    segments.forEach(segment => {
-        if (!segment) return;
-
-        const match = segment.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*[:=]\s*(.+)$/);
-
-        if (match) {
-            vars[match[1].trim()] = match[2].trim();
-        } else if (segment.startsWith('[') || segment.startsWith('{') ||
-            !isNaN(Number(segment)) || segment.startsWith('"') || segment.startsWith("'")) {
-            unnamedValues.push(segment);
-        }
-    });
-
-    if (Object.keys(vars).length === 0 && unnamedValues.length > 0) {
-        const defaultParamNames = ['root', 'head', 'nums', 'arr', 'n', 's', 'target', 'k'];
-        unnamedValues.forEach((val, index) => {
-            vars[defaultParamNames[index] || `arg${index}`] = val;
-        });
-    }
-
-    return vars;
-}
 
 async function main() {
     if (!fs.existsSync(curriculumPath)) {
@@ -91,133 +22,95 @@ async function main() {
 
     const curriculum = JSON.parse(fs.readFileSync(curriculumPath, 'utf-8'));
 
-    const results = {
-        total: 0,
-        parseSuccess: 0,
-        parseFail: 0,
-        problems: [] as { title: string; topic: string; testCase: number; input: string; parsed: any; issues: string[] }[]
-    };
+    // Find Arrays topic
+    const arraysTopic = curriculum.find((t: any) => t.topic.slug === 'arrays');
+    if (!arraysTopic) {
+        console.error('Arrays topic not found in curriculum');
+        process.exit(1);
+    }
 
     console.log('='.repeat(70));
-    console.log('PROBLEM TEST CASE ANALYSIS');
+    console.log(`LIVE EXECUTION TEST: ARRAYS TOPIC (${arraysTopic.problems.length} problems)`);
     console.log('='.repeat(70));
 
-    for (const topicData of curriculum) {
-        const topicName = topicData?.topic?.title || 'Unknown';
-        const problems = topicData?.problems || [];
+    let totalTC = 0;
+    let passedTC = 0;
+    let failedTC = 0;
+    let errorTC = 0;
 
-        if (!Array.isArray(problems)) continue;
+    const failures: any[] = [];
 
-        for (const problem of problems) {
-            if (!problem || !problem.testCases) continue;
+    for (const problem of arraysTopic.problems) {
+        const cppSolution = problem.solutions?.find((s: any) => s.language === 'cpp');
+        if (!cppSolution) {
+            console.log(`Skipping [${problem.title}] - No C++ solution`);
+            continue;
+        }
 
-            const cppSolution = problem.solutions?.find((s: Solution) => s.language === 'cpp');
+        console.log(`\nTesting [${problem.title}]...`);
 
-            for (let i = 0; i < problem.testCases.length; i++) {
-                results.total++;
-                const tc = problem.testCases[i];
-                const parsed = parseInputs(tc.input);
-                const varNames = Object.keys(parsed);
-                const issues: string[] = [];
+        try {
+            // Run all test cases for this problem through the actual executor
+            const results = await executeCode('cpp', cppSolution.code, problem.testCases);
 
-                // Check for parsing issues
-                if (varNames.length === 0) {
-                    issues.push('No variables parsed from input');
-                }
-
-                // Check for unusual formats
-                if (tc.input.includes(':') && !tc.input.includes('=')) {
-                    // Check if colon parsing worked
-                    const colonMatches = tc.input.match(/([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g);
-                    if (colonMatches) {
-                        for (const match of colonMatches) {
-                            const varName = match.replace(':', '').trim();
-                            if (!varNames.includes(varName)) {
-                                issues.push(`Colon-separated variable "${varName}" not parsed`);
-                            }
-                        }
-                    }
-                }
-
-                // Check for TreeNode/ListNode in solution but no tree variable
-                if (cppSolution) {
-                    if (cppSolution.code.includes('TreeNode') && !varNames.some(v => v === 'root' || v.includes('tree'))) {
-                        issues.push('TreeNode in solution but no "root" variable in parsed input');
-                    }
-                    if (cppSolution.code.includes('ListNode') && !varNames.some(v => v === 'head' || v.includes('list'))) {
-                        issues.push('ListNode in solution but no "head" variable in parsed input');
-                    }
-                }
-
-                // Check for void functions with output params
-                if (cppSolution) {
-                    const voidMatch = cppSolution.code.match(/void\s+\w+\s*\([^)]*vector\s*<[^>]+>\s*&\s*(\w+)/);
-                    if (voidMatch && !varNames.includes(voidMatch[1])) {
-                        // This is expected - we auto-create the output param
-                    }
-                }
-
-                if (issues.length > 0) {
-                    results.parseFail++;
-                    results.problems.push({
-                        title: problem.title,
-                        topic: topicName,
-                        testCase: i + 1,
-                        input: tc.input,
-                        parsed,
-                        issues
+            results.forEach((res: any, idx: number) => {
+                totalTC++;
+                if (res.passed) {
+                    passedTC++;
+                } else if (res.error) {
+                    errorTC++;
+                    failures.push({
+                        problem: problem.title,
+                        testCase: idx + 1,
+                        input: res.input,
+                        error: res.error,
+                        type: 'ERROR'
                     });
                 } else {
-                    results.parseSuccess++;
+                    failedTC++;
+                    failures.push({
+                        problem: problem.title,
+                        testCase: idx + 1,
+                        input: res.input,
+                        expected: res.expected,
+                        actual: res.actual,
+                        type: 'WRONG_ANSWER'
+                    });
                 }
-            }
+            });
+
+            const problemPassed = results.every((r: any) => r.passed);
+            console.log(`  ${problemPassed ? '✅' : '❌'} ${results.filter((r: any) => r.passed).length}/${results.length} test cases passed`);
+
+        } catch (err: any) {
+            console.error(`  🔥 Major error executing [${problem.title}]:`, err.message);
         }
+
+        // Wait a bit to avoid hitting rate limits
+        await new Promise(r => setTimeout(r, 500));
     }
 
-    // Print summary
     console.log('\n' + '='.repeat(70));
-    console.log('SUMMARY');
+    console.log('SUMMARY: ARRAYS TOPIC');
     console.log('='.repeat(70));
-    console.log(`Total test cases: ${results.total}`);
-    console.log(`Successfully parsed: ${results.parseSuccess}`);
-    console.log(`Issues found: ${results.parseFail}`);
-    console.log(`Success rate: ${((results.parseSuccess / results.total) * 100).toFixed(1)}%`);
+    console.log(`Total Test Cases: ${totalTC}`);
+    console.log(`Passed: ${passedTC}`);
+    console.log(`Failed (WA): ${failedTC}`);
+    console.log(`Errors: ${errorTC}`);
+    console.log(`Overall Success Rate: ${((passedTC / totalTC) * 100).toFixed(1)}%`);
 
-    if (results.problems.length > 0) {
-        console.log('\n' + '='.repeat(70));
-        console.log('PROBLEMS WITH ISSUES');
-        console.log('='.repeat(70));
-
-        for (const prob of results.problems.slice(0, 20)) { // Show first 20
-            console.log(`\n[${prob.topic}] ${prob.title} - Test Case ${prob.testCase}`);
-            console.log(`  Input: ${prob.input.substring(0, 100)}${prob.input.length > 100 ? '...' : ''}`);
-            console.log(`  Parsed: ${JSON.stringify(prob.parsed)}`);
-            console.log(`  Issues:`);
-            for (const issue of prob.issues) {
-                console.log(`    - ${issue}`);
+    if (failures.length > 0) {
+        console.log('\nDetailed Failures (Max 10):');
+        failures.slice(0, 10).forEach(f => {
+            console.log(`\n[${f.problem}] TC ${f.testCase}: ${f.type}`);
+            console.log(`  Input: ${f.input}`);
+            if (f.type === 'WRONG_ANSWER') {
+                console.log(`  Expected: ${f.expected}`);
+                console.log(`  Actual: ${f.actual}`);
+            } else {
+                console.log(`  Error: ${f.error}`);
             }
-        }
-
-        if (results.problems.length > 20) {
-            console.log(`\n... and ${results.problems.length - 20} more problems with issues`);
-        }
-    }
-
-    // Group issues by type
-    console.log('\n' + '='.repeat(70));
-    console.log('ISSUE BREAKDOWN');
-    console.log('='.repeat(70));
-
-    const issueTypes: Record<string, number> = {};
-    for (const prob of results.problems) {
-        for (const issue of prob.issues) {
-            const key = issue.split('"')[0].trim(); // Get issue type
-            issueTypes[key] = (issueTypes[key] || 0) + 1;
-        }
-    }
-
-    for (const [type, count] of Object.entries(issueTypes).sort((a, b) => b[1] - a[1])) {
-        console.log(`  ${count}x: ${type}`);
+        });
     }
 }
 

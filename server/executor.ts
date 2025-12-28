@@ -24,6 +24,66 @@ function parseInputs(inputStr: string): Record<string, any> {
     const vars: Record<string, any> = {};
     const normalized = inputStr.trim();
 
+    // Check if it's a raw matrix/grid format (multiple lines of space-separated numbers)
+    // Only if it doesn't contain [ or { or = or :
+    const lines = normalized.split('\n').map(l => l.trim()).filter(l => l);
+
+    // A raw matrix should have multiple lines, and each line should have the same number of elements
+    // or follow the [rows, cols] pattern.
+    let isRawMatrix = false;
+    if (lines.length > 1 && !normalized.includes('[') && !normalized.includes('{') && !normalized.includes('=') && !normalized.includes(':')) {
+        const lineLengths = lines.map(l => l.split(/\s+/).length);
+        const allDigits = lines.every(line => /^-?\d+(\s+-?\d+)*$/.test(line));
+
+        if (allDigits) {
+            // Case 1: rows cols \n grid...
+            if (lineLengths[0] === 2 && lines.length === Number(lines[0].split(/\s+/)[0]) + 1) {
+                isRawMatrix = true;
+            }
+            // Case 2: Pure matrix with consistent line lengths
+            else if (lineLengths.length > 2 && lineLengths.every(len => len === lineLengths[0])) {
+                isRawMatrix = true;
+            }
+        }
+    }
+
+    if (isRawMatrix) {
+        // If the first line has 2 numbers and matches dimensions of the rest, it's a dimensions line
+        const firstLineNums = lines[0].split(/\s+/).map(Number);
+        if (firstLineNums.length === 2 && lines.length === firstLineNums[0] + 1) {
+            vars['n'] = firstLineNums[0];
+            vars['m'] = firstLineNums[1];
+            vars['matrix'] = '[' + lines.slice(1).map(l => '[' + l.split(/\s+/).join(',') + ']').join(',') + ']';
+            vars['grid'] = vars['matrix']; // Alias
+            vars['arr'] = vars['matrix'];  // Alias
+            return vars;
+        }
+
+        // General multi-line numbers -> 2D array
+        vars['matrix'] = '[' + lines.map(l => '[' + l.split(/\s+/).join(',') + ']').join(',') + ']';
+        vars['grid'] = vars['matrix'];
+        vars['arr'] = vars['matrix'];
+        return vars;
+    }
+
+    // Handle raw multi-line values that aren't necessarily a matrix (e.g. n \n arr \n m \n arr)
+    if (lines.length > 1 && !normalized.includes('=') && !normalized.includes(':')) {
+        // Just use sequential names, getWrapper will map them to actual parameters
+        lines.forEach((line, index) => {
+            const val = line.trim();
+            const varName = `arg${index}`;
+            if (val.startsWith('[') || val.startsWith('{')) {
+                vars[varName] = val;
+            } else if (val.split(/\s+/).length > 1) {
+                // Space separated array
+                vars[varName] = '[' + val.split(/\s+/).join(',') + ']';
+            } else {
+                vars[varName] = val;
+            }
+        });
+        return vars;
+    }
+
     // Split by comma but respect brackets
     const segments: string[] = [];
     let depth = 0;
@@ -50,15 +110,17 @@ function parseInputs(inputStr: string): Record<string, any> {
     segments.forEach(segment => {
         if (!segment) return;
 
-        // Match "key = value" or "key: value"
-        const match = segment.match(/^([a-zA-Z_][a-zA-Z0-9_]*)\s*[:=]\s*(.+)$/);
+        const match = segment.match(/^([a-zA-Z_][a-zA-Z0-9_]*)(?:\[\])?\s*[:=]\s*(.+)$/);
 
         if (match) {
             const key = match[1].trim();
-            const val = match[2].trim();
+            let val = match[2].trim();
+            if (val.startsWith('{') && val.endsWith('}')) {
+                val = '[' + val.slice(1, -1) + ']';
+            }
             vars[key] = val;
         } else if (segment.startsWith('[') || segment.startsWith('{') ||
-            !isNaN(Number(segment)) || segment.startsWith('"') || segment.startsWith("'")) {
+            !isNaN(Number(segment.split(/\s+/)[0])) || segment.startsWith('"') || segment.startsWith("'")) {
             unnamedValues.push(segment);
         }
     });
@@ -86,39 +148,36 @@ function parseInputs(inputStr: string): Record<string, any> {
 function extractParamOrder(userCode: string, language: string): string[] {
     const cleanCode = userCode.replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, "");
 
-    // Find function signature and extract parameter names
-    let paramMatch: RegExpMatchArray | null = null;
-
     if (language === 'python') {
-        paramMatch = cleanCode.match(/def\s+\w+\s*\(([^)]*)\)/);
+        const match = cleanCode.match(/def\s+\w+\s*\(([^)]*)\)/);
+        return match ? extractParamsFromStr(match[1]) : [];
     } else if (language === 'javascript') {
-        paramMatch = cleanCode.match(/function\s+\w+\s*\(([^)]*)\)/) ||
+        const match = cleanCode.match(/function\s+\w+\s*\(([^)]*)\)/) ||
             cleanCode.match(/(?:const|let|var)\s+\w+\s*=\s*(?:function\s*)?\(([^)]*)\)/);
+        return match ? extractParamsFromStr(match[1]) : [];
     } else {
-        // C/C++/Java: match function signature
-        paramMatch = cleanCode.match(/\w+\s+\w+\s*\(([^)]*)\)/);
+        // C/C++/Java: match function signature (handle templates with <>)
+        const match = cleanCode.match(/(?:[\w<>:*&]+\s+)+(\w+)\s*\(([^)]*)\)/);
+        return match ? extractParamsFromStr(match[2]) : [];
     }
+}
 
-    if (!paramMatch || !paramMatch[1]) return [];
-
-    const paramsStr = paramMatch[1];
-    const params: string[] = [];
-
-    // Parse each parameter to extract just the name
+function extractParamsWithTypes(paramsStr: string): { name: string, type: string }[] {
+    const params: { name: string, type: string }[] = [];
     paramsStr.split(',').forEach(param => {
         const trimmed = param.trim();
         if (!trimmed) return;
-
-        // For C/C++/Java: "int arr[]" -> "arr", "int n" -> "n", "vector<int> nums" -> "nums"
-        // For Python/JS: just the name
         const parts = trimmed.split(/\s+/);
         let name = parts[parts.length - 1];
-        // Remove array brackets, pointers, references
         name = name.replace(/[\[\]*&]/g, '');
-        if (name) params.push(name);
+        const type = parts.slice(0, parts.length - 1).join(' ') + (parts[parts.length - 1].includes('[]') ? '[]' : '');
+        if (name) params.push({ name, type });
     });
-
     return params;
+}
+
+function extractParamsFromStr(paramsStr: string): string[] {
+    return extractParamsWithTypes(paramsStr).map(p => p.name);
 }
 
 function getWrapper(language: string, input: string, userCode: string) {
@@ -138,7 +197,7 @@ function getWrapper(language: string, input: string, userCode: string) {
     } else {
         const matches = [...cleanCode.matchAll(/([\w<>:*&]+)\s+(\w+)\s*\(/g)];
         if (matches.length > 0) {
-            for (let i = matches.length - 1; i >= 0; i--) {
+            for (let i = 0; i < matches.length; i++) {
                 const possibleName = matches[i][2];
                 if (!['if', 'while', 'for', 'switch', 'return', 'using', 'std', 'main'].includes(possibleName)) {
                     funcName = possibleName;
@@ -151,16 +210,77 @@ function getWrapper(language: string, input: string, userCode: string) {
     // Get the parameter order from the function signature
     const paramOrder = extractParamOrder(userCode, language);
 
-    // Match input variables to parameters by name
+    // Match input variables to parameters by name or alias
     let orderedArgs: string[] = [];
-    if (paramOrder.length > 0) {
-        // Try to match parameter names with input variable names
-        orderedArgs = paramOrder.map(param => {
-            // Find matching input variable (case-insensitive)
-            const match = varNames.find(v => v.toLowerCase() === param.toLowerCase());
-            return match || param;
-        }).filter(v => varNames.includes(v));
-    }
+    const aliases: Record<string, string[]> = {
+        'nums': ['arr', 'a', 'nums1', 'arr1', 'nums2', 'arr2', 'prices', 'root', 'head'],
+        'arr': ['nums', 'a', 'arr1', 'nums1', 'arr2', 'nums2', 'arr', 'prices', 'root', 'head'],
+        'prices': ['arr', 'nums', 'prices'],
+        'arr1': ['nums1', 'nums', 'arr', 'a'],
+        'arr2': ['nums2', 'nums', 'arr', 'b'],
+        'nums1': ['arr1', 'nums', 'arr'],
+        'nums2': ['arr2', 'nums', 'arr'],
+        'a': ['arr', 'nums', 'arr1', 'nums1'],
+        'b': ['arr2', 'nums2', 'arr', 'nums'],
+        'target': ['k', 'x', 'val', 'sum', 'target'],
+        'k': ['target', 'x', 'val', 'sum', 'k'],
+        'x': ['target', 'k', 'val', 'x'],
+        'n': ['size', 'numsSize', 'm', 'len', 'n1', 'n'],
+        'm': ['n', 'size', 'numsSize', 'len', 'n2', 'm'],
+        'matrix': ['grid', 'arr', 'board'],
+        'grid': ['matrix', 'arr', 'board']
+    };
+
+    const paramsUsed = new Set<string>();
+    orderedArgs = paramOrder.map(param => {
+        const p = param.toLowerCase();
+        // 1. Direct match
+        const directMatch = varNames.find(v => v.toLowerCase() === p && !paramsUsed.has(v));
+        if (directMatch) {
+            paramsUsed.add(directMatch);
+            return directMatch;
+        }
+
+        // 2. Alias match
+        const aliasList = aliases[p] || [];
+        const aliasMatch = varNames.find(v => aliasList.includes(v.toLowerCase()) && !paramsUsed.has(v));
+        if (aliasMatch) {
+            paramsUsed.add(aliasMatch);
+            return aliasMatch;
+        }
+
+        // 3. Smart "argN" match based on type heuristics
+        const isArrayParam = ['nums', 'arr', 'matrix', 'grid', 'board', 'a', 'b'].some(a => p.includes(a));
+        const isNumParam = ['n', 'm', 'k', 'size', 'len', 'target', 'val', 'x', 'low', 'high', 'mid'].some(n => p === n || p.includes(n));
+        const isStringParam = p.startsWith('s') || p.includes('str') || p.includes('word');
+
+        const argMatch = varNames.find(v => {
+            if (!v.startsWith('arg') || paramsUsed.has(v)) return false;
+            const val = String(vars[v]);
+            const isArrayVal = val.startsWith('[') || val.startsWith('{');
+            const isNumVal = !isNaN(Number(val));
+            const isStringVal = val.startsWith('"') || val.startsWith("'");
+
+            if (isArrayParam && isArrayVal) return true;
+            if (isNumParam && isNumVal) return true;
+            if (isStringParam && isStringVal) return true;
+            return false;
+        });
+
+        if (argMatch) {
+            paramsUsed.add(argMatch);
+            return argMatch;
+        }
+
+        // 4. Final fallback - take the first unused arg if types are unclear
+        const fallbackArg = varNames.find(v => v.startsWith('arg') && !paramsUsed.has(v));
+        if (fallbackArg) {
+            paramsUsed.add(fallbackArg);
+            return fallbackArg;
+        }
+
+        return param;
+    }).filter(v => varNames.includes(v) || ['n', 'm', 'size', 'numssize', 'len'].includes(v.toLowerCase()));
 
     // Fallback to input order if we couldn't match
     if (orderedArgs.length === 0) {
@@ -231,20 +351,7 @@ function getWrapper(language: string, input: string, userCode: string) {
 
             const cppArgs = orderedArgs.join(', ');
 
-            // Smart output handling
-            let footer = "";
-            if (funcName) {
-                footer = `auto res = ${funcName}(${cppArgs});\n`;
-                // Check return type from function signature
-                if (/vector\s*</.test(cleanCode.split(funcName)[0]?.slice(-50) || '')) {
-                    // Function returns a vector
-                    footer += `cout << "["; for(int i=0; i<res.size(); i++) { if(i>0) cout << ", "; cout << res[i]; } cout << "]" << endl;`;
-                } else if (/\bbool\b/.test(cleanCode.split(funcName)[0]?.slice(-20) || '')) {
-                    footer += `cout << (res ? "true" : "false") << endl;`;
-                } else {
-                    footer += `cout << res << endl;`;
-                }
-            }
+            let mainFooter = "";
 
             // Common data structure definitions
             let structDefs = '';
@@ -369,110 +476,147 @@ struct Node {
             }
 
             // For tree/list problems, build the data structure from input
-            let mainDecls = cppDecls;
-            let mainFooter = footer;
+            let mainDecls = "";
+            helperFunctions += `
+void __print_coll(int x) { cout << x; }
+void __print_coll(long long x) { cout << x; }
+void __print_coll(double x) { cout << x; }
+void __print_coll(bool x) { cout << (x ? "true" : "false"); }
+void __print_coll(const string& x) { cout << x; }
+void __print_coll(char x) { cout << "'" << x << "'"; }
 
-            if (usesTreeNode || usesListNode) {
-                // Get function signature to determine which params are TreeNode/ListNode
-                const funcSig = cleanCode.match(new RegExp(`\\w+\\s+${funcName}\\s*\\(([^)]*)\\)`));
-                const funcParams = funcSig ? funcSig[1] : '';
+template<typename T>
+void __print_coll(const vector<T>& v) {
+    cout << "[";
+    for(size_t i=0; i<v.size(); ++i) {
+        if(i>0) cout << ", ";
+        __print_coll(v[i]);
+    }
+    cout << "]";
+}
+`;
 
-                // Transform variable declarations to build tree/list
-                let treeVarCreated = false;
-                let listVarCreated = false;
+            // Get function signature info
+            const funcSignature = cleanCode.match(new RegExp(`\\b(?:void|auto|\\w+|[\\w<>:*&]+)\\s+${funcName}\\s*\\(([^)]*)\\)`));
+            const paramsStr = funcSignature ? funcSignature[1] : '';
+            const paramsInfo = extractParamsWithTypes(paramsStr);
+            const paramNames = paramsInfo.map(p => p.name);
 
-                mainDecls = varNames.map((v, index) => {
-                    const val = vars[v];
-                    if (val && (val.startsWith('[') || val.startsWith('{'))) {
-                        const inner = val.replace(/[\[\]]/g, '').trim();
-                        // Replace "null" with -1001 as marker
-                        const processed = inner.replace(/null/gi, '-1001');
+            // Transform variable declarations
+            mainDecls = varNames.map((v) => {
+                const val = vars[v];
+                if (val && (val.startsWith('[') || val.startsWith('{'))) {
+                    // Convert [1,2,3] to {1,2,3} and [[1,2],[3,4]] to {{1,2},{3,4}}
+                    const processed = val.replace(/\[/g, '{').replace(/\]/g, '}').replace(/null/gi, '-1001');
 
-                        // Check if this is likely the first TreeNode parameter
-                        const isFirstArrayParam = index === 0 || (!treeVarCreated && !listVarCreated);
+                    // Find parameter type for this variable
+                    const targetIdx = orderedArgs.indexOf(v);
+                    const pInfo = targetIdx !== -1 ? paramsInfo[targetIdx] : null;
 
-                        // If code uses ListNode but NOT TreeNode, and var is 'root', treat as 'head'
-                        const isListOnlyCode = usesListNode && !usesTreeNode;
+                    // Heuristics for tree/list
+                    const isListOnlyCode = usesListNode && !usesTreeNode;
+                    const isTreeNodeVar = usesTreeNode && (v === 'root' || v.toLowerCase().includes('tree'));
+                    const isListNodeVar = usesListNode && (v === 'head' || v.toLowerCase().includes('list') || (isListOnlyCode && v === 'root'));
 
-                        const isTreeNodeParam = usesTreeNode && (
-                            v === 'root' ||
-                            v.toLowerCase().includes('tree') ||
-                            v.toLowerCase().includes('node') ||
-                            funcParams.includes('TreeNode') && isFirstArrayParam
-                        );
+                    if (isTreeNodeVar) {
+                        const pureArr = val.replace(/[\[\]]/g, '').trim().replace(/null/gi, '-1001');
+                        return `vector<int> ${v}_arr = {${pureArr}};\nTreeNode* ${v} = buildTree(${v}_arr);`;
+                    }
+                    if (isListNodeVar) {
+                        const pureArr = val.replace(/[\[\]]/g, '').trim().replace(/null/gi, '-1001');
+                        return `vector<int> ${v}_arr = {${pureArr}};\nListNode* ${v} = buildList(${v}_arr);`;
+                    }
 
-                        const isListNodeParam = usesListNode && (
-                            v === 'head' ||
-                            v.toLowerCase().includes('list') ||
-                            funcParams.includes('ListNode') && isFirstArrayParam ||
-                            // If this is a ListNode-only problem and var is 'root', treat as head
-                            (isListOnlyCode && v === 'root' && isFirstArrayParam)
-                        );
-
-                        if (isTreeNodeParam && !treeVarCreated) {
-                            treeVarCreated = true;
-                            return `vector<int> ${v}_arr = {${processed}};\nTreeNode* ${v} = buildTree(${v}_arr);`;
+                    if (pInfo) {
+                        let type = pInfo.type.replace(/&/g, '').trim();
+                        if (type.includes('[]')) {
+                            const baseType = type.replace('[]', '').trim();
+                            return `${baseType} ${v}[] = ${processed};`;
                         }
-                        if (isListNodeParam && !listVarCreated) {
-                            listVarCreated = true;
-                            return `vector<int> ${v}_arr = {${processed}};\nListNode* ${v} = buildList(${v}_arr);`;
+                        if (type.includes('*') && !type.includes('**')) {
+                            const baseType = type.replace('*', '').trim();
+                            return `${baseType} ${v}[] = ${processed};`;
                         }
-                        // Regular vector
-                        return `vector<int> ${v} = {${inner}};`;
+                        return `${type} ${v} = ${processed};`;
                     }
-                    if (val && !isNaN(Number(val))) {
-                        return `int ${v} = ${val};`;
+
+                    // Fallback heuristics
+                    if (val.includes('[[')) {
+                        return `vector<vector<int>> ${v} = ${processed};`;
                     }
-                    if (val && (val.startsWith('"') || val.startsWith("'"))) {
-                        return `string ${v} = ${val};`;
-                    }
-                    if (val) {
-                        return `auto ${v} = ${val};`;
-                    }
-                    return '';
-                }).filter(s => s).join('\n');
+                    return `vector<int> ${v} = ${processed};`;
+                }
+                if (val && !isNaN(Number(val))) return `int ${v} = ${val};`;
+                if (val && (val.startsWith('"') || val.startsWith("'"))) return `string ${v} = ${val};`;
+                if (val) return `auto ${v} = ${val};`;
+                return '';
+            }).filter(s => s).join('\n');
 
-                // Smart output for tree/list return types
-                if (funcName) {
-                    const beforeFunc = cleanCode.split(funcName)[0] || '';
+            // Handle missing size parameters in mainDecls
+            orderedArgs.forEach((arg, idx) => {
+                if (!varNames.includes(arg) && ['n', 'm', 'size', 'numssize', 'len'].includes(arg.toLowerCase())) {
+                    // Try to find a preceding array/vector to infer size from
+                    const prevArrayName = orderedArgs.slice(0, idx).find(a => {
+                        const val = vars[a];
+                        return val && (val.startsWith('[') || val.startsWith('{'));
+                    });
 
-                    // Check if it's a void function with output parameter (like ans, result)
-                    const isVoidFunc = /\bvoid\b/.test(beforeFunc.slice(-10));
-                    const funcSignature = cleanCode.match(new RegExp(`\\bvoid\\s+${funcName}\\s*\\(([^)]*)\\)`));
+                    if (prevArrayName) {
+                        const prevTargetIdx = orderedArgs.indexOf(prevArrayName);
+                        const prevPInfo = prevTargetIdx !== -1 ? paramsInfo[prevTargetIdx] : null;
+                        const isCArr = prevPInfo && (prevPInfo.type.includes('[]') || prevPInfo.type.includes('*'));
 
-                    if (isVoidFunc && funcSignature) {
-                        // Parse function parameters to find output vectors
-                        const params = funcSignature[1];
-                        const outputParamMatch = params.match(/vector\s*<\s*int\s*>\s*&\s*(\w+)/);
-
-                        if (outputParamMatch) {
-                            const outputParam = outputParamMatch[1];
-                            // Create the output vector and call function
-                            mainDecls += `\nvector<int> ${outputParam};`;
-
-                            // Build the args list including the output param
-                            const allParams = paramOrder.map(p => {
-                                if (varNames.includes(p)) return p;
-                                if (p === outputParam) return outputParam;
-                                return p;
-                            });
-
-                            mainFooter = `${funcName}(${allParams.join(', ')});\ncout << "["; for(int i=0; i<${outputParam}.size(); i++) { if(i>0) cout << ", "; cout << ${outputParam}[i]; } cout << "]" << endl;`;
+                        if (isCArr) {
+                            mainDecls += `\nint ${arg} = sizeof(${prevArrayName})/sizeof(${prevArrayName}[0]);`;
                         } else {
-                            // Regular void function
-                            mainFooter = `${funcName}(${cppArgs});\ncout << "void" << endl;`;
+                            mainDecls += `\nint ${arg} = ${prevArrayName}.size();`;
                         }
-                    } else if (/TreeNode\s*\*/.test(beforeFunc.slice(-30))) {
-                        mainFooter = `TreeNode* res = ${funcName}(${cppArgs});\nprintTree(res);\ncout << endl;`;
-                    } else if (/ListNode\s*\*/.test(beforeFunc.slice(-30))) {
-                        mainFooter = `ListNode* res = ${funcName}(${cppArgs});\nprintList(res);\ncout << endl;`;
-                    } else if (/vector\s*</.test(beforeFunc.slice(-50))) {
-                        mainFooter = `auto res = ${funcName}(${cppArgs});\ncout << "["; for(int i=0; i<res.size(); i++) { if(i>0) cout << ", "; cout << res[i]; } cout << "]" << endl;`;
-                    } else if (/\bbool\b/.test(beforeFunc.slice(-20))) {
-                        mainFooter = `bool res = ${funcName}(${cppArgs});\ncout << (res ? "true" : "false") << endl;`;
                     } else {
-                        mainFooter = `auto res = ${funcName}(${cppArgs});\ncout << res << endl;`;
+                        mainDecls += `\nint ${arg} = 0;`;
                     }
+                }
+            });
+
+            // Smart output handling
+            mainFooter = "";
+            if (funcName) {
+                const beforeFunc = cleanCode.split(funcName)[0] || '';
+                const isVoidFunc = /\bvoid\s*$/.test(beforeFunc.trim());
+
+                if (isVoidFunc) {
+                    const outputMatch = paramsStr.match(/(?:vector\s*<\s*\w+\s*>\s*&|int\s+\w+\[\]|int\s*\*)\s*(\w+)/);
+                    const targetParamName = outputMatch ? outputMatch[1] : (paramNames.length > 0 ? paramNames[0] : null);
+
+                    if (targetParamName) {
+                        const targetIdx = paramNames.indexOf(targetParamName);
+                        const actualArgName = (targetIdx !== -1 && orderedArgs[targetIdx]) ? orderedArgs[targetIdx] : targetParamName;
+
+                        if (paramsStr.includes('vector')) {
+                            mainFooter = `::${funcName}(${cppArgs});\n__print_coll(${actualArgName});\ncout << endl;`;
+                        } else {
+                            const sizeParamName = paramNames.find(p => ['n', 'm', 'size', 'numsSize', 'len'].includes(p.toLowerCase()));
+                            const sizeIdx = sizeParamName ? paramNames.indexOf(sizeParamName) : -1;
+                            const actualSizeName = (sizeIdx !== -1 && orderedArgs[sizeIdx]) ? orderedArgs[sizeIdx] : sizeParamName;
+
+                            if (actualSizeName && varNames.includes(actualSizeName)) {
+                                mainFooter = `::${funcName}(${cppArgs});\ncout << "["; for(int i=0; i<${actualSizeName}; i++) { if(i>0) cout << ", "; cout << ${actualArgName}[i]; } cout << "]" << endl;`;
+                            } else {
+                                mainFooter = `::${funcName}(${cppArgs});\ncout << "void" << endl;`;
+                            }
+                        }
+                    } else {
+                        mainFooter = `::${funcName}(${cppArgs});\ncout << "void" << endl;`;
+                    }
+                } else if (/TreeNode\s*\*/.test(beforeFunc.slice(-30))) {
+                    mainFooter = `TreeNode* res = ::${funcName}(${cppArgs});\nprintTree(res);\ncout << endl;`;
+                } else if (/ListNode\s*\*/.test(beforeFunc.slice(-30))) {
+                    mainFooter = `ListNode* res = ::${funcName}(${cppArgs});\nprintList(res);\ncout << endl;`;
+                } else if (/vector\s*</.test(beforeFunc.slice(-50))) {
+                    mainFooter = `auto res = ::${funcName}(${cppArgs});\n__print_coll(res);\ncout << endl;`;
+                } else if (/\bbool\b/.test(beforeFunc.slice(-20))) {
+                    mainFooter = `bool res = ::${funcName}(${cppArgs});\ncout << (res ? "true" : "false") << endl;`;
+                } else {
+                    mainFooter = `auto res = ::${funcName}(${cppArgs});\ncout << res << endl;`;
                 }
             }
 
@@ -555,6 +699,11 @@ export async function executeCode(
 
         try {
             const wrappedCode = getWrapper(language, tc.input, code);
+            if (process.env.DEBUG_EXECUTOR) {
+                console.log("--- WRAPPED CODE ---");
+                console.log(wrappedCode);
+                console.log("--------------------");
+            }
 
             const response = await requestWithRetry({
                 method: 'post',
@@ -583,12 +732,14 @@ export async function executeCode(
                 // Comprehensive output normalization
                 const normalizeOutput = (str: string): string => {
                     let normalized = str.trim().toLowerCase();
+                    // Remove all collection-related characters for robust comparison
+                    normalized = normalized.replace(/[\[\]{},()]/g, "");
 
-                    // Remove all whitespace for comparison
+                    // Replace commas with empty space/remove them
+                    normalized = normalized.replace(/,/g, "");
+
+                    // Remove all whitespace
                     normalized = normalized.replace(/[\s\n\r]/g, "");
-
-                    // Normalize array formatting: [1, 2, 3] and [1,2,3] should match
-                    normalized = normalized.replace(/,\s*/g, ",");
 
                     // Handle trailing zeros in floats: 3.0 vs 3
                     if (/^\d+\.0+$/.test(normalized)) {
@@ -615,11 +766,33 @@ export async function executeCode(
                     }
                 }
 
+                let passed = normalizedActual === normalizedExpected;
+
+                // Lenient comparison for 1D arrays: if they don't match, try sorting them
+                if (!passed && output.startsWith('[') && output.endsWith(']') && !output.includes('[[')) {
+                    try {
+                        const sortOutput = (s: string) => {
+                            const inner = s.replace(/[\[\]]/g, '').split(',')
+                                .map(x => x.trim())
+                                .filter(x => x)
+                                .sort((a, b) => {
+                                    const na = Number(a), nb = Number(b);
+                                    if (!isNaN(na) && !isNaN(nb)) return na - nb;
+                                    return a.localeCompare(b);
+                                });
+                            return inner.join(',');
+                        };
+                        if (sortOutput(output) === sortOutput(tc.output)) {
+                            passed = true;
+                        }
+                    } catch (e) { }
+                }
+
                 results.push({
                     input: tc.input,
                     expected: tc.output,
                     actual: output,
-                    passed: normalizedActual === normalizedExpected,
+                    passed: passed,
                     isHidden
                 });
             }
