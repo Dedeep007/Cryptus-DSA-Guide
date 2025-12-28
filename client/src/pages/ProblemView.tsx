@@ -39,6 +39,7 @@ import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { SolutionCodeBlock } from "@/components/SolutionCodeBlock";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { setAIContext } from "@/components/AIAssistant";
 
 
 // Individual signature component for Submission Format
@@ -394,6 +395,17 @@ export default function ProblemView() {
       }
     }
   }, [problem, language]);
+
+  // Sync code and problem context with AI Assistant
+  useEffect(() => {
+    if (problem) {
+      setAIContext(code, {
+        problemId: problem.id,
+        problemTitle: problem.title,
+        difficulty: problem.difficulty,
+      });
+    }
+  }, [code, problem]);
 
   if (isLoading) {
     return <div className="h-screen w-screen flex items-center justify-center bg-background text-muted-foreground">Loading problem...</div>;

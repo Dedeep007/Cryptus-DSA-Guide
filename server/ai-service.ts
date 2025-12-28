@@ -42,17 +42,56 @@ interface ChatMessage {
     content: string;
 }
 
+export interface AIContext {
+    page?: string;
+    problemTitle?: string | null;
+    problemDifficulty?: string | null;
+    userCode?: string | null;
+}
+
+function buildContextPrompt(context?: AIContext): string {
+    if (!context) return '';
+
+    let contextInfo = '\n\n--- CURRENT CONTEXT ---\n';
+
+    if (context.page) {
+        contextInfo += `User is on: ${context.page} page\n`;
+    }
+
+    if (context.problemTitle) {
+        contextInfo += `Problem: "${context.problemTitle}" (${context.problemDifficulty || 'Unknown'} difficulty)\n`;
+    }
+
+    if (context.userCode && context.userCode.trim().length > 10) {
+        // Truncate very long code
+        const truncatedCode = context.userCode.length > 1500
+            ? context.userCode.substring(0, 1500) + '\n// ... (code truncated)'
+            : context.userCode;
+        contextInfo += `\nUser's current code:\n\`\`\`\n${truncatedCode}\n\`\`\`\n`;
+    }
+
+    contextInfo += '--- END CONTEXT ---\n';
+    contextInfo += '\nUse this context to provide relevant help. If reviewing their code, give hints about issues without providing the full solution.';
+
+    return contextInfo;
+}
+
 export async function generateAIResponse(
     userMessage: string,
+    context?: AIContext,
     conversationHistory: ChatMessage[] = []
 ): Promise<string> {
     if (!GROQ_API_KEY) {
-        return getFallbackResponse(userMessage);
+        return getFallbackResponse(userMessage, context);
     }
 
     try {
+        // Build context-aware system prompt
+        const contextPrompt = buildContextPrompt(context);
+        const fullSystemPrompt = SYSTEM_PROMPT + contextPrompt;
+
         const messages = [
-            { role: 'system', content: SYSTEM_PROMPT },
+            { role: 'system', content: fullSystemPrompt },
             ...conversationHistory.slice(-6).map(msg => ({
                 role: msg.role,
                 content: msg.content
@@ -66,7 +105,7 @@ export async function generateAIResponse(
                 model: 'llama-3.1-8b-instant',
                 messages,
                 temperature: 0.7,
-                max_tokens: 400,
+                max_tokens: 500,
             },
             {
                 headers: {
@@ -82,7 +121,7 @@ export async function generateAIResponse(
             return text;
         }
 
-        return getFallbackResponse(userMessage);
+        return getFallbackResponse(userMessage, context);
     } catch (error: any) {
         console.error('Groq API error:', error.response?.data || error.message);
 
@@ -97,13 +136,23 @@ export async function generateAIResponse(
         }
 
         // Other errors - use fallback
-        return getFallbackResponse(userMessage);
+        return getFallbackResponse(userMessage, context);
     }
 }
 
 // Smart fallback for when AI is not configured or has errors
-export function getFallbackResponse(message: string): string {
+export function getFallbackResponse(message: string, context?: AIContext): string {
     const lowerMessage = message.toLowerCase();
+
+    // If user is on a problem page and asking for help
+    if (context?.problemTitle && (lowerMessage.includes('help') || lowerMessage.includes('stuck') || lowerMessage.includes('hint'))) {
+        return `I see you're working on **${context.problemTitle}** (${context.problemDifficulty})! 💪\n\nHere are some tips:\n• Read the problem statement carefully\n• Check the **Worked Example** tab for a step-by-step guide\n• Think about edge cases\n\nWhat specific part are you stuck on?`;
+    }
+
+    // If user has code and asking about errors
+    if (context?.userCode && (lowerMessage.includes('error') || lowerMessage.includes('wrong') || lowerMessage.includes('not working'))) {
+        return `I can see your code! 👀\n\nTo help you debug:\n• Check for off-by-one errors in loops\n• Verify your base cases\n• Make sure you handle edge cases (empty input, single element)\n\nTry adding print statements to trace your variables. What output are you getting vs what you expect?`;
+    }
 
     // Code solution requests
     if (lowerMessage.includes('full code') || lowerMessage.includes('complete solution') ||
@@ -145,9 +194,21 @@ export function getFallbackResponse(message: string): string {
 
     // Greeting
     if (lowerMessage.includes('hello') || lowerMessage.includes('hi') || lowerMessage.includes('hey')) {
-        return "Hello! 👋 Welcome to CRYPTUS!\n\nI'm here to help you:\n• Understand DSA concepts\n• Get hints when you're stuck\n• Navigate the platform\n\nHow can I assist you today?";
+        let greeting = "Hello! 👋 Welcome to CRYPTUS!\n\nI'm here to help you:\n• Understand DSA concepts\n• Get hints when you're stuck\n• Navigate the platform\n\n";
+        if (context?.problemTitle) {
+            greeting += `I see you're working on **${context.problemTitle}**. How can I help?`;
+        } else {
+            greeting += "How can I assist you today?";
+        }
+        return greeting;
     }
 
     // Default response
-    return "I'm here to help! 🙂\n\nYou can ask me about:\n• DSA concepts and problem-solving approaches\n• Getting hints when you're stuck (not full solutions!)\n• How to use the platform features\n• Understanding test case results\n\nWhat would you like to know?";
+    let defaultResponse = "I'm here to help! 🙂\n\nYou can ask me about:\n• DSA concepts and problem-solving approaches\n• Getting hints when you're stuck (not full solutions!)\n• How to use the platform features\n• Understanding test case results\n\n";
+    if (context?.problemTitle) {
+        defaultResponse += `I can see you're on **${context.problemTitle}**. What would you like help with?`;
+    } else {
+        defaultResponse += "What would you like to know?";
+    }
+    return defaultResponse;
 }

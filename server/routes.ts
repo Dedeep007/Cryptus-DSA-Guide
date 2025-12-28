@@ -160,14 +160,14 @@ export async function registerRoutes(
   // AI Assistant chat endpoint
   app.post("/api/ai/chat", isAuthenticated, async (req, res) => {
     try {
-      const { message } = req.body;
+      const { message, context } = req.body;
 
       if (!message || typeof message !== 'string') {
         return res.status(400).json({ message: "Message is required" });
       }
 
-      // Always try AI first - it handles fallback internally
-      const response = await generateAIResponse(message);
+      // Pass context to AI (includes page, problem info, user code)
+      const response = await generateAIResponse(message, context);
       res.json({ response });
     } catch (err) {
       console.error('AI chat error:', err);

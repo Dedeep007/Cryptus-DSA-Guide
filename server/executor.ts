@@ -200,7 +200,203 @@ function getWrapper(language: string, input: string, userCode: string) {
                 }
             }
 
-            return `#include <iostream>\n#include <vector>\n#include <string>\n#include <algorithm>\n#include <climits>\n#include <cmath>\nusing namespace std;\n\n${userCode}\n\nint main() {\n${cppDecls}\n${footer}\nreturn 0;\n}`;
+            // Common data structure definitions
+            let structDefs = '';
+            let helperFunctions = '';
+
+            // TreeNode for binary tree problems
+            const usesTreeNode = /TreeNode/.test(cleanCode);
+            if (usesTreeNode) {
+                structDefs += `
+struct TreeNode {
+    int val;
+    TreeNode *left;
+    TreeNode *right;
+    TreeNode() : val(0), left(nullptr), right(nullptr) {}
+    TreeNode(int x) : val(x), left(nullptr), right(nullptr) {}
+    TreeNode(int x, TreeNode *left, TreeNode *right) : val(x), left(left), right(right) {}
+};
+`;
+                helperFunctions += `
+// Helper to build tree from level-order array
+TreeNode* buildTree(vector<int>& nodes) {
+    if (nodes.empty() || nodes[0] == -1001) return nullptr;
+    TreeNode* root = new TreeNode(nodes[0]);
+    queue<TreeNode*> q;
+    q.push(root);
+    int i = 1;
+    while (!q.empty() && i < nodes.size()) {
+        TreeNode* curr = q.front();
+        q.pop();
+        if (i < nodes.size() && nodes[i] != -1001) {
+            curr->left = new TreeNode(nodes[i]);
+            q.push(curr->left);
+        }
+        i++;
+        if (i < nodes.size() && nodes[i] != -1001) {
+            curr->right = new TreeNode(nodes[i]);
+            q.push(curr->right);
+        }
+        i++;
+    }
+    return root;
+}
+
+void printTree(TreeNode* root) {
+    if (!root) { cout << "[]"; return; }
+    vector<int> result;
+    queue<TreeNode*> q;
+    q.push(root);
+    while (!q.empty()) {
+        TreeNode* node = q.front();
+        q.pop();
+        if (node) {
+            result.push_back(node->val);
+            q.push(node->left);
+            q.push(node->right);
+        } else {
+            result.push_back(-1001);
+        }
+    }
+    while (!result.empty() && result.back() == -1001) result.pop_back();
+    cout << "[";
+    for (int i = 0; i < result.size(); i++) {
+        if (i > 0) cout << ", ";
+        if (result[i] == -1001) cout << "null";
+        else cout << result[i];
+    }
+    cout << "]";
+}
+`;
+            }
+
+            // ListNode for linked list problems
+            const usesListNode = /ListNode/.test(cleanCode);
+            if (usesListNode) {
+                structDefs += `
+struct ListNode {
+    int val;
+    ListNode *next;
+    ListNode() : val(0), next(nullptr) {}
+    ListNode(int x) : val(x), next(nullptr) {}
+    ListNode(int x, ListNode *next) : val(x), next(next) {}
+};
+`;
+                helperFunctions += `
+// Helper to build linked list from array
+ListNode* buildList(vector<int>& nodes) {
+    if (nodes.empty()) return nullptr;
+    ListNode* head = new ListNode(nodes[0]);
+    ListNode* curr = head;
+    for (int i = 1; i < nodes.size(); i++) {
+        curr->next = new ListNode(nodes[i]);
+        curr = curr->next;
+    }
+    return head;
+}
+
+void printList(ListNode* head) {
+    cout << "[";
+    bool first = true;
+    while (head) {
+        if (!first) cout << ", ";
+        cout << head->val;
+        first = false;
+        head = head->next;
+    }
+    cout << "]";
+}
+`;
+            }
+
+            // Node for N-ary tree or graph problems
+            if (/\bNode\b/.test(cleanCode) && !usesTreeNode && !usesListNode) {
+                structDefs += `
+struct Node {
+    int val;
+    vector<Node*> children;
+    Node() : val(0) {}
+    Node(int x) : val(x) {}
+    Node(int x, vector<Node*> ch) : val(x), children(ch) {}
+};
+`;
+            }
+
+            // For tree/list problems, build the data structure from input
+            let mainDecls = cppDecls;
+            let mainFooter = footer;
+
+            if (usesTreeNode || usesListNode) {
+                // Transform variable declarations to build tree/list
+                mainDecls = varNames.map(v => {
+                    const val = vars[v];
+                    if (val.startsWith('[') || val.startsWith('{')) {
+                        const inner = val.replace(/[\[\]]/g, '').trim();
+                        // Replace "null" with -1001 as marker
+                        const processed = inner.replace(/null/gi, '-1001');
+                        if (usesTreeNode && (v === 'root' || v.includes('tree') || v.includes('node'))) {
+                            return `vector<int> ${v}_arr = {${processed}};\nTreeNode* ${v} = buildTree(${v}_arr);`;
+                        }
+                        if (usesListNode && (v === 'head' || v.includes('list') || v.includes('node'))) {
+                            return `vector<int> ${v}_arr = {${processed}};\nListNode* ${v} = buildList(${v}_arr);`;
+                        }
+                        // Regular vector
+                        return `vector<int> ${v} = {${inner}};`;
+                    }
+                    if (!isNaN(Number(val))) {
+                        return `int ${v} = ${val};`;
+                    }
+                    if (val.startsWith('"') || val.startsWith("'")) {
+                        return `string ${v} = ${val};`;
+                    }
+                    return `auto ${v} = ${val};`;
+                }).join('\n');
+
+                // Smart output for tree/list return types
+                if (funcName) {
+                    const beforeFunc = cleanCode.split(funcName)[0] || '';
+
+                    // Check if it's a void function with output parameter (like ans, result)
+                    const isVoidFunc = /\bvoid\b/.test(beforeFunc.slice(-10));
+                    const funcSignature = cleanCode.match(new RegExp(`\\bvoid\\s+${funcName}\\s*\\(([^)]*)\\)`));
+
+                    if (isVoidFunc && funcSignature) {
+                        // Parse function parameters to find output vectors
+                        const params = funcSignature[1];
+                        const outputParamMatch = params.match(/vector\s*<\s*int\s*>\s*&\s*(\w+)/);
+
+                        if (outputParamMatch) {
+                            const outputParam = outputParamMatch[1];
+                            // Create the output vector and call function
+                            mainDecls += `\nvector<int> ${outputParam};`;
+
+                            // Build the args list including the output param
+                            const allParams = paramOrder.map(p => {
+                                if (varNames.includes(p)) return p;
+                                if (p === outputParam) return outputParam;
+                                return p;
+                            });
+
+                            mainFooter = `${funcName}(${allParams.join(', ')});\ncout << "["; for(int i=0; i<${outputParam}.size(); i++) { if(i>0) cout << ", "; cout << ${outputParam}[i]; } cout << "]" << endl;`;
+                        } else {
+                            // Regular void function
+                            mainFooter = `${funcName}(${cppArgs});\ncout << "void" << endl;`;
+                        }
+                    } else if (/TreeNode\s*\*/.test(beforeFunc.slice(-30))) {
+                        mainFooter = `TreeNode* res = ${funcName}(${cppArgs});\nprintTree(res);\ncout << endl;`;
+                    } else if (/ListNode\s*\*/.test(beforeFunc.slice(-30))) {
+                        mainFooter = `ListNode* res = ${funcName}(${cppArgs});\nprintList(res);\ncout << endl;`;
+                    } else if (/vector\s*</.test(beforeFunc.slice(-50))) {
+                        mainFooter = `auto res = ${funcName}(${cppArgs});\ncout << "["; for(int i=0; i<res.size(); i++) { if(i>0) cout << ", "; cout << res[i]; } cout << "]" << endl;`;
+                    } else if (/\bbool\b/.test(beforeFunc.slice(-20))) {
+                        mainFooter = `bool res = ${funcName}(${cppArgs});\ncout << (res ? "true" : "false") << endl;`;
+                    } else {
+                        mainFooter = `auto res = ${funcName}(${cppArgs});\ncout << res << endl;`;
+                    }
+                }
+            }
+
+            return `#include <iostream>\n#include <vector>\n#include <string>\n#include <algorithm>\n#include <climits>\n#include <cmath>\n#include <queue>\n#include <stack>\n#include <unordered_map>\n#include <unordered_set>\nusing namespace std;\n${structDefs}\n${helperFunctions}\n${userCode}\n\nint main() {\n${mainDecls}\n${mainFooter}\nreturn 0;\n}`;
         }
 
         case 'c': {
@@ -304,11 +500,40 @@ export async function executeCode(
                     isHidden
                 });
             } else {
-                let normalizedActual = output.toLowerCase().replace(/[\s\n\r]/g, "");
-                let normalizedExpected = tc.output.trim().toLowerCase().replace(/[\s\n\r]/g, "");
+                // Comprehensive output normalization
+                const normalizeOutput = (str: string): string => {
+                    let normalized = str.trim().toLowerCase();
 
-                if (normalizedActual === '1') normalizedActual = 'true';
-                if (normalizedActual === '0') normalizedActual = 'false';
+                    // Remove all whitespace for comparison
+                    normalized = normalized.replace(/[\s\n\r]/g, "");
+
+                    // Normalize array formatting: [1, 2, 3] and [1,2,3] should match
+                    normalized = normalized.replace(/,\s*/g, ",");
+
+                    // Handle trailing zeros in floats: 3.0 vs 3
+                    if (/^\d+\.0+$/.test(normalized)) {
+                        normalized = normalized.replace(/\.0+$/, "");
+                    }
+
+                    return normalized;
+                };
+
+                let normalizedActual = normalizeOutput(output);
+                let normalizedExpected = normalizeOutput(tc.output);
+
+                // Only convert 0/1 to true/false if the expected output is a boolean
+                const expectedIsBoolean = normalizedExpected === 'true' || normalizedExpected === 'false';
+                if (expectedIsBoolean) {
+                    if (normalizedActual === '1') normalizedActual = 'true';
+                    if (normalizedActual === '0') normalizedActual = 'false';
+                }
+
+                // Handle -1 as "not found" - both -1 and "notfound" should work
+                if (normalizedExpected === '-1' || normalizedExpected === 'notfound') {
+                    if (normalizedActual === '-1' || normalizedActual === 'notfound') {
+                        normalizedActual = normalizedExpected;
+                    }
+                }
 
                 results.push({
                     input: tc.input,
