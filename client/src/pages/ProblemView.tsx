@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   ArrowLeft,
   Play,
@@ -24,7 +25,8 @@ import {
   Loader2,
   ChevronDown,
   Copy,
-  Check
+  Check,
+  RefreshCw
 } from "lucide-react";
 import { PrismLight as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -84,7 +86,7 @@ function SubmissionSignature({ lang, signature }: { lang: string; signature: str
       <div className="relative">
         <SyntaxHighlighter
           language={syntaxLang === 'cpp' ? 'cpp' : syntaxLang === 'python' ? 'python' : syntaxLang === 'java' ? 'java' : syntaxLang === 'javascript' || syntaxLang === 'js' ? 'javascript' : 'c'}
-          style={vscDarkPlus}
+          style={vscDarkPlus as any}
           customStyle={{
             margin: 0,
             padding: '12px 16px',
@@ -105,6 +107,32 @@ function SubmissionSignature({ lang, signature }: { lang: string; signature: str
             : (syntaxLang === 'python' ? `${signature}:\n    pass` : `${signature} {\n    \n}`)}
         </SyntaxHighlighter>
       </div>
+    </div>
+  );
+}
+
+function CodeSubmissionSignature({ format, language }: { format: string; language: string }) {
+  return (
+    <div className="space-y-4">
+      {format.split('\n')
+        .filter(line => line.includes(': `'))
+        .filter(line => {
+          const [lang] = line.split(': `');
+          const l = lang.trim().toLowerCase();
+          if (language === 'javascript') return l === 'javascript' || l === 'js';
+          return l === language;
+        })
+        .map((line, idx) => {
+          const [lang, signature] = line.split(': `');
+          const cleanSignature = signature.replace('`', '');
+          return (
+            <SubmissionSignature
+              key={idx}
+              lang={lang}
+              signature={cleanSignature}
+            />
+          );
+        })}
     </div>
   );
 }
@@ -315,6 +343,7 @@ export default function ProblemView() {
   const { mutateAsync: runCode, isPending: isRunning } = useRunCode();
   const { mutateAsync: submit, isPending: isSubmitting } = useSubmitProblem();
   const { toast } = useToast();
+  const isMobile = useIsMobile();
 
   // Helper to get boilerplate from submission format
   const getBoilerplate = (problem: any, lang: string) => {
@@ -440,304 +469,350 @@ export default function ProblemView() {
   return (
     <div className="h-screen flex flex-col bg-background overflow-hidden">
       {/* Header */}
-      <header className="h-16 border-b border-border bg-card flex items-center justify-between px-4 z-20">
-        <div className="flex items-center gap-4">
+      <header className="h-16 md:h-16 border-b border-border bg-card flex items-center justify-between px-2 md:px-4 z-20 shrink-0">
+        <div className="flex items-center gap-2 md:gap-4 overflow-hidden">
           <Link href={`/topic/${problem.topicId}`}>
-            {/* Note: Ideally we'd navigate back to the specific topic slug, but we only have ID here. 
-                For MVP, routing back to dashboard or using a store for history is better. 
-                Using dashboard for now for safety if slug isn't available easily without extra fetch. */}
-            <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-white">
+            <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-white shrink-0">
               <ArrowLeft className="w-4 h-4" />
             </Button>
           </Link>
-          <h1 className="font-bold text-white">
+          <h1 className="font-bold text-white truncate text-sm md:text-base">
             {problem.title}
           </h1>
           <span className={cn(
-            "text-xs px-2 py-0.5 rounded-full border",
+            "text-[10px] md:text-xs px-2 py-0.5 rounded-full border shrink-0",
             problem.difficulty === "Easy" ? "border-green-500/50 text-green-500 bg-green-500/10" :
               problem.difficulty === "Medium" ? "border-yellow-500/50 text-yellow-500 bg-yellow-500/10" :
                 "border-red-500/50 text-red-500 bg-red-500/10"
           )}>{problem.difficulty}</span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 md:gap-2 shrink-0">
           <Button
             variant="secondary"
             size="sm"
             onClick={handleRun}
             disabled={isRunning || isSubmitting}
-            className="gap-2 font-semibold"
+            className="gap-1 md:gap-2 font-semibold h-8 md:h-9 text-xs md:text-sm px-2 md:px-4"
           >
-            {isRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-            Run
+            {isRunning ? <Loader2 className="w-3 h-3 md:w-4 md:h-4 animate-spin" /> : <Play className="w-3 h-3 md:w-4 md:h-4" />}
+            <span className="hidden xs:inline">Run</span>
           </Button>
           <Button
             size="sm"
             onClick={handleSubmit}
             disabled={isSubmitting}
-            className="gap-2 bg-green-600 hover:bg-green-700 text-white font-semibold"
+            className="gap-1 md:gap-2 bg-green-600 hover:bg-green-700 text-white font-semibold h-8 md:h-9 text-xs md:text-sm px-2 md:px-4"
           >
-            {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-            Submit
+            {isSubmitting ? <Loader2 className="w-3 h-3 md:w-4 md:h-4 animate-spin" /> : <CheckCircle2 className="w-3 h-3 md:w-4 md:h-4" />}
+            <span>Submit</span>
           </Button>
         </div>
       </header>
 
       {/* Main Workspace */}
-      <div className="flex-1 overflow-hidden">
-        <ResizablePanelGroup direction="horizontal">
+      <div className="flex-1 overflow-hidden relative">
+        {isMobile ? (
+          <Tabs defaultValue="editor" className="h-full flex flex-col">
+            <div className="border-b border-border bg-card px-2">
+              <TabsList className="bg-transparent h-12 w-full justify-start gap-4">
+                <TabsTrigger value="guide" className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-2 h-full">Problem</TabsTrigger>
+                <TabsTrigger value="editor" className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-2 h-full">Code</TabsTrigger>
+                <TabsTrigger value="console" className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary rounded-none px-2 h-full">Console</TabsTrigger>
+              </TabsList>
+            </div>
 
-          {/* Left Panel: Guide/Instructions */}
-          <ResizablePanel defaultSize={40} minSize={25} maxSize={60} className="bg-card">
-            <Tabs defaultValue="guide" className="h-full flex flex-col">
-              <div className="border-b border-border px-4 pt-2">
-                <TabsList className="bg-transparent p-0 gap-4">
-                  <TabsTrigger
-                    value="guide"
-                    className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:shadow-none rounded-none px-0 py-2"
-                  >
-                    <BookOpen className="w-4 h-4 mr-2" />
-                    Guide
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="example"
-                    className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:shadow-none rounded-none px-0 py-2"
-                  >
-                    <Code2 className="w-4 h-4 mr-2" />
-                    Worked Example
-                  </TabsTrigger>
+            <TabsContent value="guide" className="flex-1 overflow-y-auto m-0 p-4 focus-visible:outline-none bg-card">
+              <Tabs defaultValue="instructions" className="w-full">
+                <TabsList className="bg-muted/50 p-1 mb-4 h-8">
+                  <TabsTrigger value="instructions" className="text-xs h-6">Guide</TabsTrigger>
+                  <TabsTrigger value="example" className="text-xs h-6">Example</TabsTrigger>
                 </TabsList>
-              </div>
-
-              <TabsContent value="guide" className="flex-1 overflow-y-auto p-6 focus-visible:outline-none">
-                <div className="h-full">
+                <TabsContent value="instructions" className="m-0">
                   <MarkdownRenderer language={language}>{problem.description}</MarkdownRenderer>
-
-                  <div className="mt-8 p-6 glass-panel rounded-2xl">
-                    <h3 className="text-white font-bold text-lg mb-4 flex items-center gap-2">
-                      <TerminalIcon className="w-5 h-5 text-primary glow-text" />
+                  <div className="mt-6 p-4 glass-panel rounded-xl">
+                    <h3 className="text-white font-bold text-base mb-3 flex items-center gap-2">
+                      <TerminalIcon className="w-4 h-4 text-primary" />
                       Submission Format
                     </h3>
-                    <p className="text-sm text-muted-foreground mb-6">
-                      Implement the function exactly as shown for your preferred language to ensure proper test case execution.
-                    </p>
-                    <div className="space-y-4">
-                      {problem.submissionFormat.split('\n')
-                        .filter(line => line.includes(': `'))
-                        .filter(line => {
-                          const [lang] = line.split(': `');
-                          const l = lang.trim().toLowerCase();
-                          // Logic for matching multi-name languages (js/javascript)
-                          if (language === 'javascript') return l === 'javascript' || l === 'js';
-                          return l === language;
-                        })
-                        .map((line, idx) => {
-                          const [lang, signature] = line.split(': `');
-                          const cleanSignature = signature.replace('`', '');
-                          return (
-                            <SubmissionSignature
-                              key={idx}
-                              lang={lang}
-                              signature={cleanSignature}
-                            />
-                          );
-                        })}
-                    </div>
+                    <CodeSubmissionSignature format={problem.submissionFormat} language={language} />
                   </div>
-
-                  {/* Test Cases as Examples */}
-                  {problem.testCases && problem.testCases.length > 0 && (
-                    <>
-                      <hr className="my-8 border-border" />
-                      <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-white font-bold text-lg">Examples</h3>
-                      </div>
-                      <div className="space-y-6">
-                        {problem.testCases.slice(0, 1).map((testCase: any, index: number) => (
-                          <div key={index} className="space-y-3">
-                            <div className="space-y-3">
-                              <CopyableCodeBlock code={testCase.input} label="Input" language={language} />
-                              <CopyableCodeBlock code={testCase.output} label="Output" language={language} />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </>
-                  )}
-
-                  <hr className="my-8 border-border" />
-                  <h3 className="text-white font-bold text-lg mb-4">Concept Explanation</h3>
-                  <MarkdownRenderer language={language}>{problem.conceptExplanation}</MarkdownRenderer>
-                </div>
-              </TabsContent>
-
-              <TabsContent value="example" className="flex-1 overflow-y-auto p-6 focus-visible:outline-none">
-                <div className="h-full">
+                </TabsContent>
+                <TabsContent value="example" className="m-0">
                   <MarkdownRenderer language={language}>{problem.workedExample}</MarkdownRenderer>
-                  <h3 className="text-white font-bold text-lg mt-8 mb-4">Solution Code</h3>
-                  <SolutionCodeBlock problemId={problem.id} defaultLanguage={language} />
-                </div>
-              </TabsContent>
-            </Tabs>
-          </ResizablePanel>
+                </TabsContent>
+              </Tabs>
+            </TabsContent>
 
-          <ResizableHandle withHandle />
-
-          {/* Right Panel: Editor & Output */}
-          <ResizablePanel defaultSize={60}>
-            <ResizablePanelGroup direction="vertical">
-
-              {/* Code Editor */}
-              <ResizablePanel defaultSize={70} minSize={30}>
-                <div className="h-full flex flex-col bg-[#1e1e1e]">
-                  <div className="h-10 border-b border-[#2d2d2d] flex items-center justify-between px-4 bg-[#1e1e1e]">
-                    <div className="flex items-center gap-3">
-                      <Code2 className="w-3 h-3 text-muted-foreground" />
-                      <Select value={language} onValueChange={(val) => {
-                        setLanguage(val);
-                        setCode(getBoilerplate(problem, val));
-                      }}>
-                        <SelectTrigger className="w-[130px] h-7 text-xs bg-[#2d2d2d] border-[#3d3d3d] focus:ring-0 focus:ring-offset-0">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent className="bg-[#2d2d2d] border-[#3d3d3d]">
-                          {LANGUAGES.map((lang) => (
-                            <SelectItem
-                              key={lang.id}
-                              value={lang.id}
-                              className="text-xs cursor-pointer hover:bg-[#3d3d3d]"
-                            >
-                              {lang.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 text-muted-foreground hover:text-white"
-                      onClick={() => setCode(getBoilerplate(problem, language))}
-                      title="Reset code"
+            <TabsContent value="editor" className="flex-1 m-0 p-0 focus-visible:outline-none">
+              <div className="h-full flex flex-col">
+                <div className="px-4 py-2 bg-muted/30 border-b border-border flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground font-mono">language:</span>
+                    <select
+                      value={language}
+                      onChange={(e) => setLanguage(e.target.value)}
+                      className="bg-transparent text-xs text-white border-none focus:ring-0 cursor-pointer font-bold"
                     >
-                      <RotateCcw className="w-3 h-3" />
-                    </Button>
+                      <option value="cpp">C++</option>
+                      <option value="python">Python</option>
+                      <option value="java">Java</option>
+                      <option value="javascript">JavaScript</option>
+                      <option value="c">C</option>
+                    </select>
                   </div>
-                  <div className="flex-1 relative">
-                    <CodeEditor
-                      initialValue={code}
-                      language={LANGUAGES.find(l => l.id === language)?.monaco || "cpp"}
-                      onChange={(val) => setCode(val || "")}
-                    />
-                  </div>
+                  <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setCode(getBoilerplate(language, problem.submissionFormat))}>
+                    <RefreshCw className="w-3 h-3" />
+                  </Button>
                 </div>
-              </ResizablePanel>
+                <div className="flex-1 overflow-hidden">
+                  <CodeEditor
+                    value={code}
+                    language={language}
+                    onChange={(val) => setCode(val || "")}
+                    theme="vs-dark"
+                  />
+                </div>
+              </div>
+            </TabsContent>
 
-              <ResizableHandle withHandle />
+            <TabsContent value="console" className="flex-1 overflow-y-auto m-0 p-4 focus-visible:outline-none bg-black/40">
+              <ExecutionConsole results={output} isRunning={isRunning} />
+            </TabsContent>
+          </Tabs>
+        ) : (
+          <ResizablePanelGroup direction="horizontal">
 
-              {/* Console/Output */}
-              <ResizablePanel defaultSize={30} minSize={10}>
-                <div className="h-full flex flex-col bg-card border-t border-border">
-                  <div className="h-9 border-b border-border flex items-center px-4 bg-muted/20">
-                    <span className="text-xs font-medium text-muted-foreground flex items-center gap-2">
-                      <TerminalIcon className="w-3 h-3" />
-                      Console Output
-                    </span>
-                  </div>
-                  <div className="flex-1 p-4 overflow-y-auto font-mono text-sm">
-                    {output.length === 0 ? (
-                      <div className="text-muted-foreground italic opacity-50">
-                        Run code to see output...
-                      </div>
-                    ) : (
-                      <div className="space-y-4">
-                        {output.map((res, i) => (
-                          <div key={i} className={cn(
-                            "p-4 rounded-xl border transition-all duration-200",
-                            res.passed ? "bg-green-500/5 border-green-500/20" : "bg-red-500/5 border-red-500/20"
-                          )}>
-                            {res.error ? (
-                              <div className="space-y-2">
-                                <div className="flex items-center gap-2 text-red-500 font-bold text-sm">
-                                  <div className="w-1.5 h-1.5 rounded-full bg-red-500" />
-                                  Runtime Error
-                                </div>
-                                <pre className="text-red-400 text-xs bg-red-500/10 p-3 rounded-lg overflow-x-auto whitespace-pre-wrap font-mono">
-                                  {res.error}
-                                </pre>
+            {/* Left Panel: Guide/Instructions */}
+            <ResizablePanel defaultSize={40} minSize={25} maxSize={60} className="bg-card">
+              <Tabs defaultValue="guide" className="h-full flex flex-col">
+                <div className="border-b border-border px-4 pt-2">
+                  <TabsList className="bg-transparent p-0 gap-4">
+                    <TabsTrigger
+                      value="guide"
+                      className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:shadow-none rounded-none px-0 py-2"
+                    >
+                      <BookOpen className="w-4 h-4 mr-2" />
+                      Guide
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="example"
+                      className="data-[state=active]:bg-transparent data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:shadow-none rounded-none px-0 py-2"
+                    >
+                      <Code2 className="w-4 h-4 mr-2" />
+                      Worked Example
+                    </TabsTrigger>
+                  </TabsList>
+                </div>
+
+                <TabsContent value="guide" className="flex-1 overflow-y-auto p-6 focus-visible:outline-none">
+                  <div className="h-full">
+                    <MarkdownRenderer language={language}>{problem.description}</MarkdownRenderer>
+
+                    <div className="mt-8 p-6 glass-panel rounded-2xl">
+                      <h3 className="text-white font-bold text-lg mb-4 flex items-center gap-2">
+                        <TerminalIcon className="w-5 h-5 text-primary glow-text" />
+                        Submission Format
+                      </h3>
+                      <p className="text-sm text-muted-foreground mb-6">
+                        Implement the function exactly as shown for your preferred language to ensure proper test case execution.
+                      </p>
+                      <CodeSubmissionSignature format={problem.submissionFormat} language={language} />
+                    </div>
+
+                    {/* Test Cases as Examples */}
+                    {problem.testCases && problem.testCases.length > 0 && (
+                      <>
+                        <hr className="my-8 border-border" />
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="text-white font-bold text-lg">Examples</h3>
+                        </div>
+                        <div className="space-y-6">
+                          {problem.testCases.slice(0, 1).map((testCase: any, index: number) => (
+                            <div key={index} className="space-y-3">
+                              <div className="space-y-3">
+                                <CopyableCodeBlock code={testCase.input} label="Input" language={language} />
+                                <CopyableCodeBlock code={testCase.output} label="Output" language={language} />
                               </div>
-                            ) : (
-                              <>
-                                <div className="flex items-center justify-between mb-3">
-                                  <div className="flex items-center gap-2">
-                                    {res.passed ? (
-                                      <div className="bg-green-500/20 p-1 rounded-full">
-                                        <CheckCircle2 className="w-4 h-4 text-green-500" />
-                                      </div>
-                                    ) : (
-                                      <div className="bg-red-500/20 p-1 rounded-full">
-                                        <div className="w-4 h-4 rounded-full border-2 border-red-500 border-t-transparent animate-spin-slow" />
-                                      </div>
-                                    )}
-                                    <span className="font-bold text-white text-sm">
-                                      Test Case {i + 1}
-                                      {res.isHidden && <span className="ml-2 text-[10px] text-muted-foreground uppercase tracking-widest bg-white/5 px-1.5 py-0.5 rounded">Hidden</span>}
-                                    </span>
-                                  </div>
-                                  <Badge variant="outline" className={cn(
-                                    "text-[10px] uppercase font-bold",
-                                    res.passed ? "text-green-500 border-green-500/30" : "text-red-500 border-red-500/30"
-                                  )}>
-                                    {res.passed ? "Passed" : "Failed"}
-                                  </Badge>
-                                </div>
-
-                                {!res.isHidden ? (
-                                  <div className="grid grid-cols-1 gap-3">
-                                    <div className="space-y-1.5">
-                                      <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Input</span>
-                                      <div className="bg-black/40 p-3 rounded-lg border border-white/5 font-mono text-xs text-white break-all">
-                                        {typeof res.input === 'string' ? res.input : JSON.stringify(res.input)}
-                                      </div>
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-3">
-                                      <div className="space-y-1.5">
-                                        <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Expected</span>
-                                        <div className="bg-black/40 p-3 rounded-lg border border-white/5 font-mono text-xs text-green-400/80">
-                                          {res.expected}
-                                        </div>
-                                      </div>
-                                      <div className="space-y-1.5">
-                                        <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Actual</span>
-                                        <div className={cn(
-                                          "bg-black/40 p-3 rounded-lg border border-white/5 font-mono text-xs",
-                                          res.passed ? "text-green-400" : "text-red-400"
-                                        )}>
-                                          {res.actual || "No output"}
-                                        </div>
-                                      </div>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <div className="text-[11px] text-muted-foreground italic bg-black/20 p-2 rounded border border-white/5">
-                                    Input and output are hidden for this test case to maintain problem integrity.
-                                  </div>
-                                )}
-                              </>
-                            )}
-                          </div>
-                        ))}
-                      </div>
+                            </div>
+                          ))}
+                        </div>
+                      </>
                     )}
+
+                    <hr className="my-8 border-border" />
+                    <h3 className="text-white font-bold text-lg mb-4">Concept Explanation</h3>
+                    <MarkdownRenderer language={language}>{problem.conceptExplanation}</MarkdownRenderer>
                   </div>
-                </div>
-              </ResizablePanel>
+                </TabsContent>
 
-            </ResizablePanelGroup>
-          </ResizablePanel>
+                <TabsContent value="example" className="flex-1 overflow-y-auto p-6 focus-visible:outline-none">
+                  <div className="h-full">
+                    <MarkdownRenderer language={language}>{problem.workedExample}</MarkdownRenderer>
+                    <h3 className="text-white font-bold text-lg mt-8 mb-4">Solution Code</h3>
+                    <SolutionCodeBlock problemId={problem.id} defaultLanguage={language} />
+                  </div>
+                </TabsContent>
+              </Tabs>
+            </ResizablePanel>
 
-        </ResizablePanelGroup>
+            <ResizableHandle withHandle />
+
+            {/* Right Panel: Editor & Output */}
+            <ResizablePanel defaultSize={60}>
+              <ResizablePanelGroup direction="vertical">
+
+                {/* Code Editor */}
+                <ResizablePanel defaultSize={70} minSize={30}>
+                  <div className="h-full flex flex-col bg-[#1e1e1e]">
+                    <div className="h-10 border-b border-[#2d2d2d] flex items-center justify-between px-4 bg-[#1e1e1e]">
+                      <div className="flex items-center gap-3">
+                        <Code2 className="w-3 h-3 text-muted-foreground" />
+                        <Select value={language} onValueChange={(val) => {
+                          setLanguage(val);
+                          setCode(getBoilerplate(problem, val));
+                        }}>
+                          <SelectTrigger className="w-[130px] h-7 text-xs bg-[#2d2d2d] border-[#3d3d3d] focus:ring-0 focus:ring-offset-0">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent className="bg-[#2d2d2d] border-[#3d3d3d]">
+                            {LANGUAGES.map((lang) => (
+                              <SelectItem
+                                key={lang.id}
+                                value={lang.id}
+                                className="text-xs cursor-pointer hover:bg-[#3d3d3d]"
+                              >
+                                {lang.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 text-muted-foreground hover:text-white"
+                        onClick={() => setCode(getBoilerplate(problem, language))}
+                        title="Reset code"
+                      >
+                        <RotateCcw className="w-3 h-3" />
+                      </Button>
+                    </div>
+                    <div className="flex-1 relative">
+                      <CodeEditor
+                        initialValue={code}
+                        language={LANGUAGES.find(l => l.id === language)?.monaco || "cpp"}
+                        onChange={(val) => setCode(val || "")}
+                      />
+                    </div>
+                  </div>
+                </ResizablePanel>
+
+                <ResizableHandle withHandle />
+
+                {/* Console/Output */}
+                <ResizablePanel defaultSize={30} minSize={10}>
+                  <div className="h-full flex flex-col bg-card border-t border-border">
+                    <div className="h-9 border-b border-border flex items-center px-4 bg-muted/20">
+                      <span className="text-xs font-medium text-muted-foreground flex items-center gap-2">
+                        <TerminalIcon className="w-3 h-3" />
+                        Console Output
+                      </span>
+                    </div>
+                    <div className="flex-1 p-4 overflow-y-auto font-mono text-sm">
+                      {output.length === 0 ? (
+                        <div className="text-muted-foreground italic opacity-50">
+                          Run code to see output...
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          {output.map((res, i) => (
+                            <div key={i} className={cn(
+                              "p-4 rounded-xl border transition-all duration-200",
+                              res.passed ? "bg-green-500/5 border-green-500/20" : "bg-red-500/5 border-red-500/20"
+                            )}>
+                              {res.error ? (
+                                <div className="space-y-2">
+                                  <div className="flex items-center gap-2 text-red-500 font-bold text-sm">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                                    Runtime Error
+                                  </div>
+                                  <pre className="text-red-400 text-xs bg-red-500/10 p-3 rounded-lg overflow-x-auto whitespace-pre-wrap font-mono">
+                                    {res.error}
+                                  </pre>
+                                </div>
+                              ) : (
+                                <>
+                                  <div className="flex items-center justify-between mb-3">
+                                    <div className="flex items-center gap-2">
+                                      {res.passed ? (
+                                        <div className="bg-green-500/20 p-1 rounded-full">
+                                          <CheckCircle2 className="w-4 h-4 text-green-500" />
+                                        </div>
+                                      ) : (
+                                        <div className="bg-red-500/20 p-1 rounded-full">
+                                          <div className="w-4 h-4 rounded-full border-2 border-red-500 border-t-transparent animate-spin-slow" />
+                                        </div>
+                                      )}
+                                      <span className="font-bold text-white text-sm">
+                                        Test Case {i + 1}
+                                        {res.isHidden && <span className="ml-2 text-[10px] text-muted-foreground uppercase tracking-widest bg-white/5 px-1.5 py-0.5 rounded">Hidden</span>}
+                                      </span>
+                                    </div>
+                                    <Badge variant="outline" className={cn(
+                                      "text-[10px] uppercase font-bold",
+                                      res.passed ? "text-green-500 border-green-500/30" : "text-red-500 border-red-500/30"
+                                    )}>
+                                      {res.passed ? "Passed" : "Failed"}
+                                    </Badge>
+                                  </div>
+
+                                  {!res.isHidden ? (
+                                    <div className="grid grid-cols-1 gap-3">
+                                      <div className="space-y-1.5">
+                                        <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Input</span>
+                                        <div className="bg-black/40 p-3 rounded-lg border border-white/5 font-mono text-xs text-white break-all">
+                                          {typeof res.input === 'string' ? res.input : JSON.stringify(res.input)}
+                                        </div>
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-3">
+                                        <div className="space-y-1.5">
+                                          <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Expected</span>
+                                          <div className="bg-black/40 p-3 rounded-lg border border-white/5 font-mono text-xs text-green-400/80">
+                                            {res.expected}
+                                          </div>
+                                        </div>
+                                        <div className="space-y-1.5">
+                                          <span className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Actual</span>
+                                          <div className={cn(
+                                            "bg-black/40 p-3 rounded-lg border border-white/5 font-mono text-xs",
+                                            res.passed ? "text-green-400" : "text-red-400"
+                                          )}>
+                                            {res.actual || "No output"}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="text-[11px] text-muted-foreground italic bg-black/20 p-2 rounded border border-white/5">
+                                      Input and output are hidden for this test case to maintain problem integrity.
+                                    </div>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </ResizablePanel>
+
+              </ResizablePanelGroup>
+            </ResizablePanel>
+
+          </ResizablePanelGroup>
+        )}
       </div>
     </div>
   );

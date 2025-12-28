@@ -1,6 +1,6 @@
 import { useLeaderboard } from "@/hooks/use-curriculum";
 import { useAuth } from "@/hooks/use-auth";
-import { Sidebar } from "@/components/Sidebar";
+import { Sidebar, MobileNav } from "@/components/Sidebar";
 import { Button } from "@/components/ui/button";
 import { Trophy, Medal, Flame, Target, Crown, Loader2, RefreshCw, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -46,9 +46,10 @@ export default function Leaderboard() {
     };
 
     return (
-        <div className="min-h-screen bg-background">
+        <div className="min-h-screen bg-background flex flex-col md:flex-row">
             <Sidebar />
-            <main className="ml-64 p-8">
+            <MobileNav />
+            <main className="flex-1 md:ml-64 p-4 md:p-8 pt-20 md:pt-8">
                 <div className="max-w-4xl mx-auto">
                     {/* Header */}
                     <div className="mb-8 flex items-start justify-between">
@@ -108,12 +109,12 @@ export default function Leaderboard() {
                     {/* Leaderboard Table */}
                     <div className="glass-panel rounded-2xl overflow-hidden">
                         {/* Table Header */}
-                        <div className="grid grid-cols-12 gap-4 px-6 py-4 border-b border-border/50 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                            <div className="col-span-1">Rank</div>
-                            <div className="col-span-5">User</div>
-                            <div className="col-span-2 text-center">XP</div>
-                            <div className="col-span-2 text-center">Solved</div>
-                            <div className="col-span-2 text-center">Streak</div>
+                        <div className="grid grid-cols-12 gap-4 px-4 md:px-6 py-4 border-b border-border/50 text-[10px] md:text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                            <div className="col-span-2 md:col-span-1">Rank</div>
+                            <div className="col-span-6 md:col-span-5">User</div>
+                            <div className="hidden md:block col-span-2 text-center">XP</div>
+                            <div className="hidden md:block col-span-2 text-center">Solved</div>
+                            <div className="col-span-4 md:col-span-2 text-center">Streak</div>
                         </div>
 
                         {/* Loading State */}
@@ -138,55 +139,55 @@ export default function Leaderboard() {
                                             )}
                                         >
                                             {/* Rank */}
-                                            <div className="col-span-1 flex items-center">
+                                            <div className="col-span-2 md:col-span-1 flex items-center">
                                                 {getRankIcon(entry.rank)}
                                             </div>
 
                                             {/* User */}
-                                            <div className="col-span-5 flex items-center gap-3">
+                                            <div className="col-span-6 md:col-span-5 flex items-center gap-2 md:gap-3">
                                                 {entry.profileImageUrl ? (
                                                     <img
                                                         src={entry.profileImageUrl}
                                                         alt={entry.firstName}
-                                                        className="w-10 h-10 rounded-full object-cover ring-2 ring-white/10"
+                                                        className="w-8 h-8 md:w-10 md:h-10 rounded-full object-cover ring-2 ring-white/10"
                                                     />
                                                 ) : (
-                                                    <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold">
+                                                    <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold text-xs">
                                                         {entry.firstName[0]}
                                                     </div>
                                                 )}
-                                                <div>
+                                                <div className="min-w-0">
                                                     <p className={cn(
-                                                        "font-medium",
+                                                        "font-medium text-xs md:text-sm truncate",
                                                         isCurrentUser ? "text-primary" : "text-white"
                                                     )}>
                                                         {entry.firstName} {entry.lastName}
-                                                        {isCurrentUser && <span className="ml-2 text-xs text-primary">(You)</span>}
+                                                        {isCurrentUser && <span className="hidden md:inline ml-2 text-[10px] text-primary">(You)</span>}
                                                     </p>
                                                 </div>
                                             </div>
 
                                             {/* XP */}
-                                            <div className="col-span-2 text-center">
-                                                <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-primary/10 text-primary font-bold">
+                                            <div className="hidden md:block col-span-2 text-center">
+                                                <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-primary/10 text-primary font-bold text-xs">
                                                     <Target className="w-3 h-3" />
                                                     {entry.xp.toLocaleString()}
                                                 </span>
                                             </div>
 
                                             {/* Solved */}
-                                            <div className="col-span-2 text-center">
-                                                <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-green-500/10 text-green-400 font-bold">
+                                            <div className="hidden md:block col-span-2 text-center">
+                                                <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-green-500/10 text-green-400 font-bold text-xs">
                                                     <Trophy className="w-3 h-3" />
                                                     {entry.solved}
                                                 </span>
                                             </div>
 
                                             {/* Streak */}
-                                            <div className="col-span-2 text-center">
-                                                <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-orange-500/10 text-orange-400 font-bold">
+                                            <div className="col-span-4 md:col-span-2 text-center">
+                                                <span className="inline-flex items-center gap-1 px-2 md:px-3 py-1 rounded-full bg-orange-500/10 text-orange-400 font-bold text-[10px] md:text-xs">
                                                     <Flame className="w-3 h-3" />
-                                                    {entry.streak} days
+                                                    {entry.streak}<span className="hidden md:inline"> days</span>
                                                 </span>
                                             </div>
                                         </div>

@@ -28,15 +28,18 @@ function Router() {
   }
 
   return (
-    <Switch>
-      <Route path="/" component={user ? Dashboard : Landing} />
-      <Route path="/login" component={Login} />
-      <Route path="/register" component={Register} />
-      <Route path="/topic/:slug" component={user ? TopicView : Landing} />
-      <Route path="/problem/:id" component={user ? ProblemView : Landing} />
-      <Route path="/leaderboard" component={user ? Leaderboard : Landing} />
-      <Route component={NotFound} />
-    </Switch>
+    <>
+      <Switch>
+        <Route path="/" component={user ? Dashboard : Landing} />
+        <Route path="/login" component={Login} />
+        <Route path="/register" component={Register} />
+        <Route path="/topic/:slug" component={user ? TopicView : Landing} />
+        <Route path="/problem/:id" component={user ? ProblemView : Landing} />
+        <Route path="/leaderboard" component={user ? Leaderboard : Landing} />
+        <Route component={NotFound} />
+      </Switch>
+      {user && <AIAssistant />}
+    </>
   );
 }
 
@@ -45,7 +48,6 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <Router />
-        <AIAssistant />
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>

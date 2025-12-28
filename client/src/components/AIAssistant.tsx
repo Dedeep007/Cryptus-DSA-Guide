@@ -295,7 +295,7 @@ export function AIAssistant() {
             {isOpen && (
                 <div
                     className={cn(
-                        "fixed bottom-24 right-6 w-96 h-[500px] z-50",
+                        "fixed bottom-24 right-4 md:right-6 w-[calc(100vw-32px)] md:w-96 h-[500px] z-50",
                         "bg-card border border-border rounded-2xl shadow-2xl",
                         "flex flex-col overflow-hidden",
                         "animate-in slide-in-from-bottom-4 fade-in duration-300"

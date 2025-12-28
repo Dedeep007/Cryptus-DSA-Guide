@@ -1,6 +1,6 @@
 import { useRoute, Link } from "wouter";
 import { useTopic, useTopicExamples } from "@/hooks/use-curriculum";
-import { Sidebar } from "@/components/Sidebar";
+import { Sidebar, MobileNav } from "@/components/Sidebar";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -314,7 +314,7 @@ export default function TopicView() {
   // Fetch code example when language or slug changes
   useEffect(() => {
     if (!slug) return;
-    
+
     setLoadingExample(true);
     fetch(`/api/topics/${slug}/examples/${selectedLanguage}`)
       .then(res => res.json())
@@ -364,10 +364,11 @@ export default function TopicView() {
   const explanation = { title: topic.title, content: topic.description };
 
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="flex min-h-screen bg-background flex-col md:flex-row">
       <Sidebar />
-      <div className="flex-1 pl-64">
-        <div className="max-w-5xl mx-auto p-8">
+      <MobileNav />
+      <div className="flex-1 md:pl-64 pt-16 md:pt-0">
+        <div className="max-w-5xl mx-auto p-4 md:p-8">
           <Link href="/">
             <Button variant="ghost" className="mb-6 pl-0 hover:bg-transparent text-muted-foreground hover:text-white gap-2">
               <ArrowLeft className="w-4 h-4" />
@@ -451,7 +452,7 @@ export default function TopicView() {
                       </Button>
                     </div>
                   </div>
-                  
+
                   <div className="h-96 border border-border rounded-lg overflow-hidden">
                     {loadingExample ? (
                       <div className="h-full flex items-center justify-center bg-card">
