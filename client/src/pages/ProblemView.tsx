@@ -103,9 +103,7 @@ function SubmissionSignature({ lang, signature }: { lang: string; signature: str
             }
           }}
         >
-          {signature.includes('{') || (syntaxLang === 'python' && signature.includes(':'))
-            ? signature
-            : (syntaxLang === 'python' ? `${signature}:\n    pass` : `${signature} {\n    \n}`)}
+          {signature}
         </SyntaxHighlighter>
       </div>
     </div>
@@ -113,27 +111,73 @@ function SubmissionSignature({ lang, signature }: { lang: string; signature: str
 }
 
 function CodeSubmissionSignature({ format, language }: { format: string; language: string }) {
+  // Parse the submission format which contains code blocks separated by language headers
+  const parseSubmissionFormat = (text: string, selectedLang: string): { lang: string; code: string } | null => {
+    if (!text) return null;
+
+    // Find language sections - they're formatted as "LANG:" or "LANG: " at the start of a line
+    const langPatterns: Record<string, string[]> = {
+      'cpp': ['CPP:', 'C++:'],
+      'c': ['C:'],
+      'python': ['PYTHON:', 'Python:'],
+      'java': ['JAVA:', 'Java:'],
+      'javascript': ['JAVASCRIPT:', 'JavaScript:', 'JS:']
+    };
+
+    const patterns = langPatterns[selectedLang] || [selectedLang.toUpperCase() + ':'];
+
+    let startIdx = -1;
+    let matchedPattern = '';
+
+    for (const pattern of patterns) {
+      const idx = text.indexOf(pattern);
+      if (idx !== -1 && (startIdx === -1 || idx < startIdx)) {
+        startIdx = idx;
+        matchedPattern = pattern;
+      }
+    }
+
+    if (startIdx === -1) return null;
+
+    // Find where this language section ends (next language header or end of string)
+    const afterStart = startIdx + matchedPattern.length;
+    let endIdx = text.length;
+
+    // Look for the next language header
+    const allPatterns = Object.values(langPatterns).flat();
+    for (const pattern of allPatterns) {
+      if (pattern === matchedPattern) continue;
+      const nextIdx = text.indexOf('\n' + pattern, afterStart);
+      const nextIdx2 = text.indexOf('\n\n' + pattern, afterStart);
+      const foundIdx = Math.min(
+        nextIdx !== -1 ? nextIdx : Infinity,
+        nextIdx2 !== -1 ? nextIdx2 : Infinity
+      );
+      if (foundIdx < endIdx) {
+        endIdx = foundIdx;
+      }
+    }
+
+    const code = text.substring(afterStart, endIdx).trim();
+    return { lang: selectedLang.toUpperCase(), code };
+  };
+
+  const parsed = parseSubmissionFormat(format, language);
+
+  if (!parsed || !parsed.code) {
+    return (
+      <div className="text-muted-foreground text-sm italic">
+        No submission format available for {language.toUpperCase()}.
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
-      {format.split('\n')
-        .filter(line => line.includes(': `'))
-        .filter(line => {
-          const [lang] = line.split(': `');
-          const l = lang.trim().toLowerCase();
-          if (language === 'javascript') return l === 'javascript' || l === 'js';
-          return l === language;
-        })
-        .map((line, idx) => {
-          const [lang, signature] = line.split(': `');
-          const cleanSignature = signature.replace('`', '');
-          return (
-            <SubmissionSignature
-              key={idx}
-              lang={lang}
-              signature={cleanSignature}
-            />
-          );
-        })}
+      <SubmissionSignature
+        lang={parsed.lang}
+        signature={parsed.code}
+      />
     </div>
   );
 }
@@ -346,28 +390,65 @@ export default function ProblemView() {
   const { toast } = useToast();
   const isMobile = useIsMobile();
 
-  // Helper to get boilerplate from submission format
+  // Helper to get boilerplate from submission format - uses same logic as CodeSubmissionSignature
   const getBoilerplate = (problem: any, lang: string) => {
     if (!problem?.submissionFormat) return DEFAULT_CODE[lang] || "";
 
-    const lines = problem.submissionFormat.split('\n');
-    const langKey = lang === 'javascript' ? 'JAVASCRIPT:' : lang.toUpperCase() + ':';
-    const sigLine = lines.find((l: string) => l.toUpperCase().startsWith(langKey));
+    const text = problem.submissionFormat;
 
-    if (sigLine && sigLine.includes('`')) {
-      const signature = sigLine.split('`')[1];
-      if (lang === 'python') {
-        return `${signature}:\n    pass`;
-      } else if (lang === 'cpp') {
-        return `#include <iostream>\n#include <vector>\n#include <string>\n#include <algorithm>\n\nusing namespace std;\n\n${signature} {\n    \n}`;
-      } else if (lang === 'java') {
-        return `${signature} {\n    \n}`;
-      } else {
-        return `${signature} {\n    \n}`;
+    // Find language sections - they're formatted as "LANG:" or "LANG: " at the start of a line
+    const langPatterns: Record<string, string[]> = {
+      'cpp': ['CPP:', 'C++:'],
+      'c': ['C:'],
+      'python': ['PYTHON:', 'Python:'],
+      'java': ['JAVA:', 'Java:'],
+      'javascript': ['JAVASCRIPT:', 'JavaScript:', 'JS:']
+    };
+
+    const patterns = langPatterns[lang] || [lang.toUpperCase() + ':'];
+
+    let startIdx = -1;
+    let matchedPattern = '';
+
+    for (const pattern of patterns) {
+      const idx = text.indexOf(pattern);
+      if (idx !== -1 && (startIdx === -1 || idx < startIdx)) {
+        startIdx = idx;
+        matchedPattern = pattern;
       }
     }
 
-    return DEFAULT_CODE[lang] || "";
+    if (startIdx === -1) return DEFAULT_CODE[lang] || "";
+
+    // Find where this language section ends (next language header or end of string)
+    const afterStart = startIdx + matchedPattern.length;
+    let endIdx = text.length;
+
+    // Look for the next language header
+    const allPatterns = Object.values(langPatterns).flat();
+    for (const pattern of allPatterns) {
+      if (pattern === matchedPattern) continue;
+      const nextIdx = text.indexOf('\n' + pattern, afterStart);
+      const nextIdx2 = text.indexOf('\n\n' + pattern, afterStart);
+      const foundIdx = Math.min(
+        nextIdx !== -1 ? nextIdx : Infinity,
+        nextIdx2 !== -1 ? nextIdx2 : Infinity
+      );
+      if (foundIdx < endIdx) {
+        endIdx = foundIdx;
+      }
+    }
+
+    const code = text.substring(afterStart, endIdx).trim();
+
+    if (!code) return DEFAULT_CODE[lang] || "";
+
+    // For C++, add common includes
+    if (lang === 'cpp' && !code.includes('#include')) {
+      return `#include <iostream>\n#include <vector>\n#include <string>\n#include <algorithm>\n\nusing namespace std;\n\n${code}`;
+    }
+
+    return code;
   };
 
   const [code, setCode] = useState("");

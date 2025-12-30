@@ -9,3 +9,4 @@ vite.config.ts.*
 json_store
 Strivers-A2Z-DSA-Sheet-main/
 migrations/
+process_curriculum.py

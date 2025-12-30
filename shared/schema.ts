@@ -79,6 +79,7 @@ export const topicExamples = pgTable("topic_examples", {
   topicSlug: text("topic_slug").notNull(),
   language: text("language").notNull(), // "cpp", "python", "java", "javascript"
   code: text("code").notNull(),
+  explanation: text("explanation"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
