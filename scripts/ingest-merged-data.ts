@@ -221,32 +221,47 @@ async function ingestData() {
         // Insert problems
         let problemOrder = 0;
         for (const problem of topicData.problems) {
-            // Insert problem
-            const problemResult = await db.execute(sql`
-                INSERT INTO problems (topic_id, title, description, difficulty, test_cases, concept_explanation, submission_format, "order")
-                VALUES (
-                    ${topicId},
-                    ${problem.title},
-                    ${problem.description},
-                    ${problem.difficulty.toLowerCase()},
-                    ${JSON.stringify(problem.testCases)},
-                    ${problem.conceptExplanation},
-                    ${problem.submissionFormat},
-                    ${problemOrder}
-                )
-                RETURNING id
-            `);
-            const problemId = (problemResult.rows[0] as any).id;
-            problemOrder++;
-            totalProblems++;
+            try {
+                // Ensure all fields have values
+                const conceptExpl = problem.conceptExplanation || '';
+                const submFormat = problem.submissionFormat || '';
+                const testCasesJson = JSON.stringify(problem.testCases || []);
 
-            // Insert solutions
-            for (const solution of problem.solutions) {
-                await db.execute(sql`
-                    INSERT INTO solutions (problem_id, language, code)
-                    VALUES (${problemId}, ${solution.language}, ${solution.code})
+                // Insert problem
+                const problemResult = await db.execute(sql`
+                    INSERT INTO problems (topic_id, title, description, difficulty, test_cases, concept_explanation, submission_format, "order")
+                    VALUES (
+                        ${topicId},
+                        ${problem.title},
+                        ${problem.description},
+                        ${problem.difficulty.toLowerCase()},
+                        ${testCasesJson},
+                        ${conceptExpl},
+                        ${submFormat},
+                        ${problemOrder}
+                    )
+                    RETURNING id
                 `);
-                totalSolutions++;
+                const problemId = (problemResult.rows[0] as any).id;
+                problemOrder++;
+                totalProblems++;
+
+                // Insert solutions
+                if (problem.solutions) {
+                    for (const solution of problem.solutions) {
+                        try {
+                            await db.execute(sql`
+                                INSERT INTO solutions (problem_id, language, code)
+                                VALUES (${problemId}, ${solution.language}, ${solution.code})
+                            `);
+                            totalSolutions++;
+                        } catch (solErr) {
+                            console.error(`    ⚠️ Error inserting solution for ${problem.title} (${solution.language})`);
+                        }
+                    }
+                }
+            } catch (probErr) {
+                console.error(`  ⚠️ Error inserting problem "${problem.title}": ${(probErr as any).message?.slice(0, 100)}`);
             }
         }
 
