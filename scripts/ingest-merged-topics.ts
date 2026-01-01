@@ -65,7 +65,7 @@ async function clearDatabase() {
 async function ingestMergedTopics() {
     try {
         // Read the JSON file
-        const jsonPath = path.join(process.cwd(), 'json_store', 'topic-jsons', 'merged-topics.json');
+        const jsonPath = path.join(process.cwd(), 'json_store', 'topic-jsons', 'mergerd-info.json');
         const jsonData = fs.readFileSync(jsonPath, 'utf-8');
         const mergedTopicsData: MergedTopicsData = JSON.parse(jsonData);
 

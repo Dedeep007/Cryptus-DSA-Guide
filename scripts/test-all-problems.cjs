@@ -1,43 +1,24 @@
-// Test all problems by calling the executor directly
-// Run with: npx tsx scripts/test-all-problems.ts
+const fs = require('fs');
+const path = require('path');
 
-import fs from 'fs';
-import path from 'path';
-import { executeCode } from '../server/executor';
-
-interface TestCase {
-    input: string;
-    output: string;
-}
-
-interface Problem {
-    title: string;
-    testCases: TestCase[];
-    solutions: { language: string; code: string }[];
-}
-
-interface TopicData {
-    topic: { title: string; slug: string };
-    problems: Problem[];
-}
-
-const results = {
-    passed: [] as { topic: string; problem: string; testCases: number }[],
-    failed: [] as { topic: string; problem: string; failedTests: any[] }[],
-    errors: [] as { topic: string; problem: string; error: string }[]
-};
-
+// Test all problems by calling the API directly
 async function testAllProblems() {
-    const topicsDir = path.join(import.meta.dirname, '..', 'json_store', 'topic-jsons');
+    const topicsDir = path.join(__dirname, '..', 'json_store', 'topic-jsons');
     const files = fs.readdirSync(topicsDir).filter(f => f.endsWith('.json') && f !== 'merged-topics.json');
 
+    const results = {
+        passed: [],
+        failed: [],
+        errors: []
+    };
+
     console.log('='.repeat(60));
-    console.log('AUTOMATED PROBLEM TESTING (Direct Executor)');
+    console.log('AUTOMATED PROBLEM TESTING');
     console.log('='.repeat(60));
 
     for (const file of files) {
         const filePath = path.join(topicsDir, file);
-        const data: TopicData = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+        const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
 
         const topicName = data.topic?.title || file;
         console.log(`\n📁 Topic: ${topicName}`);
@@ -59,11 +40,27 @@ async function testAllProblems() {
                 continue;
             }
 
+            // Test by calling the executor API
             try {
-                const executorResults = await executeCode('cpp', cppSolution.code, testCases);
+                const response = await fetch('http://localhost:5000/api/run', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        code: cppSolution.code,
+                        language: 'cpp',
+                        testCases: testCases
+                    })
+                });
 
-                const allPassed = executorResults.every(r => r.passed);
-                const passedCount = executorResults.filter(r => r.passed).length;
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
+                const result = await response.json();
+
+                // Check if all test cases passed
+                const allPassed = result.every(r => r.passed);
+                const passedCount = result.filter(r => r.passed).length;
 
                 if (allPassed) {
                     console.log(`  ✅ ${problem.title}: ${passedCount}/${testCases.length} passed`);
@@ -75,42 +72,35 @@ async function testAllProblems() {
                 } else {
                     console.log(`  ❌ ${problem.title}: ${passedCount}/${testCases.length} passed`);
 
-                    const failedTests: any[] = [];
-                    for (const r of executorResults) {
+                    // Log failed test case details
+                    for (const r of result) {
                         if (!r.passed) {
-                            console.log(`      Input: ${r.input.substring(0, 60)}...`);
+                            console.log(`      Input: ${r.input.substring(0, 50)}...`);
                             console.log(`      Expected: ${r.expected}`);
                             console.log(`      Actual: ${r.actual}`);
                             if (r.error) {
                                 console.log(`      Error: ${r.error.substring(0, 100)}`);
                             }
-                            failedTests.push({
-                                input: r.input,
-                                expected: r.expected,
-                                actual: r.actual,
-                                error: r.error
-                            });
                         }
                     }
 
                     results.failed.push({
                         topic: topicName,
                         problem: problem.title,
-                        failedTests
+                        testResults: result
                     });
                 }
             } catch (error) {
-                const errMsg = (error as Error).message;
-                console.log(`  💥 ${problem.title}: Error - ${errMsg.substring(0, 80)}`);
+                console.log(`  💥 ${problem.title}: Error - ${error.message}`);
                 results.errors.push({
                     topic: topicName,
                     problem: problem.title,
-                    error: errMsg
+                    error: error.message
                 });
             }
 
-            // Small delay to avoid overwhelming the Piston API
-            await new Promise(r => setTimeout(r, 300));
+            // Small delay to avoid overwhelming the API
+            await new Promise(r => setTimeout(r, 200));
         }
     }
 
@@ -132,13 +122,13 @@ async function testAllProblems() {
     if (results.errors.length > 0) {
         console.log('\n--- ERROR PROBLEMS ---');
         for (const e of results.errors) {
-            console.log(`  ${e.topic} > ${e.problem}: ${e.error.substring(0, 60)}`);
+            console.log(`  ${e.topic} > ${e.problem}: ${e.error}`);
         }
     }
 
     // Save detailed results to file
     fs.writeFileSync(
-        path.join(import.meta.dirname, 'test-results.json'),
+        path.join(__dirname, 'test-results.json'),
         JSON.stringify(results, null, 2)
     );
     console.log('\nDetailed results saved to scripts/test-results.json');

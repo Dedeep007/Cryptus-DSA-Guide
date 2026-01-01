@@ -1,3 +1,7 @@
+/**
+ * Robust Code Executor
+ * Handles functions, classes, and various data structures for DSA problems
+ */
 
 import axios from 'axios';
 
@@ -20,687 +24,1268 @@ const LANGUAGE_MAP: Record<string, { language: string; version: string }> = {
     javascript: { language: 'javascript', version: '18.15.0' },
 };
 
-function parseInputs(inputStr: string): Record<string, any> {
-    const vars: Record<string, any> = {};
-    const normalized = inputStr.trim();
+// ==================== INPUT PARSING ====================
 
-    // Check if it's a raw matrix/grid format (multiple lines of space-separated numbers)
-    // Only if it doesn't contain [ or { or = or :
-    const lines = normalized.split('\n').map(l => l.trim()).filter(l => l);
+interface ParsedInput {
+    variables: Record<string, string>;
+    rawValues: string[];
+}
 
-    // A raw matrix should have multiple lines, and each line should have the same number of elements
-    // or follow the [rows, cols] pattern.
-    let isRawMatrix = false;
-    if (lines.length > 1 && !normalized.includes('[') && !normalized.includes('{') && !normalized.includes('=') && !normalized.includes(':')) {
-        const lineLengths = lines.map(l => l.split(/\s+/).length);
-        const allDigits = lines.every(line => /^-?\d+(\s+-?\d+)*$/.test(line));
+function parseTestInput(inputStr: string): ParsedInput {
+    const variables: Record<string, string> = {};
+    const rawValues: string[] = [];
+    const lines = inputStr.trim().split('\n').map(l => l.trim()).filter(Boolean);
 
-        if (allDigits) {
-            // Case 1: rows cols \n grid...
-            if (lineLengths[0] === 2 && lines.length === Number(lines[0].split(/\s+/)[0]) + 1) {
-                isRawMatrix = true;
-            }
-            // Case 2: Pure matrix with consistent line lengths
-            else if (lineLengths.length > 2 && lineLengths.every(len => len === lineLengths[0])) {
-                isRawMatrix = true;
-            }
-        }
-    }
-
-    if (isRawMatrix) {
-        // If the first line has 2 numbers and matches dimensions of the rest, it's a dimensions line
-        const firstLineNums = lines[0].split(/\s+/).map(Number);
-        if (firstLineNums.length === 2 && lines.length === firstLineNums[0] + 1) {
-            vars['n'] = firstLineNums[0];
-            vars['m'] = firstLineNums[1];
-            vars['matrix'] = '[' + lines.slice(1).map(l => '[' + l.split(/\s+/).join(',') + ']').join(',') + ']';
-            vars['grid'] = vars['matrix']; // Alias
-            vars['arr'] = vars['matrix'];  // Alias
-            return vars;
-        }
-
-        // General multi-line numbers -> 2D array
-        vars['matrix'] = '[' + lines.map(l => '[' + l.split(/\s+/).join(',') + ']').join(',') + ']';
-        vars['grid'] = vars['matrix'];
-        vars['arr'] = vars['matrix'];
-        return vars;
-    }
-
-    // Handle raw multi-line values that aren't necessarily a matrix (e.g. n \n arr \n m \n arr)
-    if (lines.length > 1 && !normalized.includes('=') && !normalized.includes(':')) {
-        // Just use sequential names, getWrapper will map them to actual parameters
-        lines.forEach((line, index) => {
-            const val = line.trim();
-            const varName = `arg${index}`;
-            if (val.startsWith('[') || val.startsWith('{')) {
-                vars[varName] = val;
-            } else if (val.split(/\s+/).length > 1) {
-                // Space separated array
-                vars[varName] = '[' + val.split(/\s+/).join(',') + ']';
-            } else {
-                vars[varName] = val;
-            }
-        });
-        return vars;
-    }
-
-    // Split by comma but respect brackets
-    const segments: string[] = [];
-    let depth = 0;
-    let current = '';
-
-    for (let i = 0; i < normalized.length; i++) {
-        const char = normalized[i];
-        if (char === '[' || char === '{' || char === '(') depth++;
-        if (char === ']' || char === '}' || char === ')') depth--;
-
-        if ((char === ',' || char === '\n') && depth === 0) {
-            if (current.trim()) segments.push(current.trim());
-            current = '';
-        } else {
-            current += char;
-        }
-    }
-    if (current.trim()) segments.push(current.trim());
-
-    // Track unnamed values
-    const unnamedValues: string[] = [];
-
-    // Parse each segment - handle both "key = value" and "key: value"
-    segments.forEach(segment => {
-        if (!segment) return;
-
-        const match = segment.match(/^([a-zA-Z_][a-zA-Z0-9_]*)(?:\[\])?\s*[:=]\s*(.+)$/);
-
+    for (const line of lines) {
+        // Check for assignment: name = value or name: value
+        const match = line.match(/^['"]?([a-zA-Z_][a-zA-Z0-9_]*)['"]?\s*(?:\[\])?\s*[:=]\s*(.+)$/);
         if (match) {
-            const key = match[1].trim();
-            let val = match[2].trim();
-            if (val.startsWith('{') && val.endsWith('}')) {
-                val = '[' + val.slice(1, -1) + ']';
+            const name = match[1];
+            let value = match[2].trim();
+            // Normalize arrays: {1,2,3} -> [1,2,3]
+            if (value.startsWith('{') && value.endsWith('}')) {
+                value = '[' + value.slice(1, -1) + ']';
             }
-            vars[key] = val;
-        } else if (segment.startsWith('[') || segment.startsWith('{') ||
-            !isNaN(Number(segment.split(/\s+/)[0])) || segment.startsWith('"') || segment.startsWith("'")) {
-            unnamedValues.push(segment);
+            variables[name] = value;
+        } else if (line) {
+            // Raw value - try to detect type
+            if (line.startsWith('[') || line.startsWith('{')) {
+                rawValues.push(line.startsWith('{') ? '[' + line.slice(1, -1) + ']' : line);
+            } else if (/^-?\d+$/.test(line)) {
+                rawValues.push(line); // Integer
+            } else if (/^-?\d+\.\d+$/.test(line)) {
+                rawValues.push(line); // Float
+            } else if (line.split(/\s+/).every(p => /^-?\d+$/.test(p))) {
+                // Space-separated numbers -> array
+                rawValues.push('[' + line.split(/\s+/).join(', ') + ']');
+            } else {
+                if ((line.startsWith('"') && line.endsWith('"')) || (line.startsWith("'") && line.endsWith("'"))) {
+                    rawValues.push(line);
+                } else {
+                    rawValues.push(`"${line}"`); // String
+                }
+            }
         }
-    });
-
-    // Assign unnamed values to default param names
-    if (Object.keys(vars).length === 0 && unnamedValues.length > 0) {
-        const defaultParamNames = ['root', 'head', 'nums', 'arr', 'n', 's', 'target', 'k'];
-        unnamedValues.forEach((val, index) => {
-            vars[defaultParamNames[index] || `arg${index}`] = val;
-        });
-    } else if (unnamedValues.length > 0) {
-        // Mix of named and unnamed - assign unnamed to remaining defaults
-        const existingKeys = Object.keys(vars);
-        const defaultParamNames = ['root', 'head', 'nums', 'arr', 'n', 's', 'target', 'k']
-            .filter(n => !existingKeys.includes(n));
-        unnamedValues.forEach((val, index) => {
-            if (defaultParamNames[index]) vars[defaultParamNames[index]] = val;
-        });
     }
 
-    return vars;
+    return { variables, rawValues };
 }
 
-// Extract parameter names from the function signature
-function extractParamOrder(userCode: string, language: string): string[] {
-    const cleanCode = userCode.replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, "");
+// ==================== CODE ANALYSIS ====================
 
-    if (language === 'python') {
-        const match = cleanCode.match(/def\s+\w+\s*\(([^)]*)\)/);
-        return match ? extractParamsFromStr(match[1]) : [];
+
+interface CodeAnalysis {
+    type: 'function' | 'class' | 'unknown';
+    mainName: string; // Function name or Class name
+    entryPoint: string; // Method to call (if class)
+    methods: string[];
+    hasTreeNode: boolean;
+    hasListNode: boolean;
+    hasCustomNode: boolean;
+    returnType: string;
+    params: { name: string; type: string }[];
+    isVoid: boolean;
+}
+
+export function analyzeCode(code: string, language: string): CodeAnalysis {
+    const cleanCode = code.replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, '');
+
+    const analysis: CodeAnalysis = {
+        type: 'unknown',
+        mainName: '',
+        entryPoint: '',
+        methods: [],
+        hasTreeNode: /\bTreeNode\b/.test(cleanCode),
+        hasListNode: /\bListNode\b/.test(cleanCode),
+        hasCustomNode: /\bNode\b/.test(cleanCode) && !/\bTreeNode\b/.test(cleanCode) && !/\bListNode\b/.test(cleanCode),
+        returnType: 'auto',
+        params: [],
+        isVoid: false
+    };
+
+    if (language === 'cpp' || language === 'c') {
+        const classMatches = [...cleanCode.matchAll(/class\s+(\w+)\s*\{/g)];
+        if (classMatches.length > 0) {
+            analysis.type = 'class';
+            // Heuristic to pick the main class
+            const names = classMatches.map(m => m[1]);
+            let bestName = names[0];
+            if (names.includes('Solution')) bestName = 'Solution';
+            else if (names.includes('Trie')) bestName = 'Trie';
+            else if (names.includes('MinStack')) bestName = 'MinStack';
+            else if (names.includes('MyStack')) bestName = 'MyStack';
+            else if (names.includes('MyQueue')) bestName = 'MyQueue';
+            else {
+                // filter out helper node classes
+                const candidate = names.find(n => !n.endsWith('Node') && n !== 'ListNode' && n !== 'TreeNode');
+                if (candidate) bestName = candidate;
+            }
+            analysis.mainName = bestName;
+            // Find public methods to determine entry point
+            // Regex to find method signature: type name(params)
+            const methodMatches = [...cleanCode.matchAll(/(?:public\s*:\s*)?(?:virtual\s+)?(\w+(?:<[^>]+>)?)\s+(\w+)\s*\(([^)]*)\)/g)];
+
+            for (const m of methodMatches) {
+                const returnT = m[1];
+                const methodName = m[2];
+                const paramsS = m[3];
+
+                if (!['if', 'while', 'for', 'switch', 'return', analysis.mainName].includes(methodName)) {
+                    analysis.methods.push(methodName);
+                    // Heuristic: The solution method usually returns something, or is the only public method that isn't a constructor
+                    // We'll take the first non-constructor candidate as the entry point
+                    if (!analysis.entryPoint && methodName !== analysis.mainName) {
+                        analysis.entryPoint = methodName;
+                        analysis.returnType = returnT;
+                        analysis.isVoid = /\bvoid\b/.test(returnT);
+                        analysis.params = parseParams(paramsS);
+                    }
+                }
+            }
+        } else {
+            // Function
+            // console.log("Analyze C/Cpp function...");
+            analysis.type = 'function';
+            const funcMatches = [...cleanCode.matchAll(/(\w+(?:<[^>]+>)?(?:\s*[*&])?)\s+(\w+)\s*\(([^)]*)\)\s*(?:const)?\s*\{/g)];
+            // console.log("Func matches:", funcMatches.length);
+            for (const m of funcMatches) {
+                const name = m[2];
+                if (!['if', 'while', 'for', 'switch', 'return', 'main', 'using'].includes(name)) {
+                    analysis.methods.push(name);
+                    if (!analysis.mainName) {
+                        analysis.mainName = name;
+                        analysis.entryPoint = name;
+                        analysis.returnType = m[1];
+                        analysis.isVoid = /\bvoid\b/.test(m[1]);
+                        analysis.params = parseParams(m[3]);
+                    }
+                }
+            }
+        }
+    } else if (language === 'python') {
+        const classMatch = cleanCode.match(/class\s+(\w+)\s*[:(]/);
+        if (classMatch) {
+            analysis.type = 'class';
+            analysis.mainName = classMatch[1];
+            const methodMatches = [...cleanCode.matchAll(/def\s+(\w+)\s*\(([^)]*)\)/g)];
+            for (const m of methodMatches) {
+                const methodName = m[1];
+                if (methodName !== '__init__') {
+                    analysis.methods.push(methodName);
+                    if (!analysis.entryPoint) {
+                        analysis.entryPoint = methodName;
+                        analysis.params = m[2].split(',').map(p => {
+                            const name = p.trim().split(':')[0].trim();
+                            return { name, type: 'any' };
+                        }).filter(p => p.name && p.name !== 'self');
+                    }
+                }
+            }
+        } else {
+            analysis.type = 'function';
+            const funcMatch = cleanCode.match(/def\s+(\w+)\s*\(([^)]*)\)/);
+            if (funcMatch) {
+                analysis.mainName = funcMatch[1];
+                analysis.entryPoint = funcMatch[1];
+                analysis.params = funcMatch[2].split(',').map(p => {
+                    const name = p.trim().split(':')[0].trim();
+                    return { name, type: 'any' };
+                }).filter(p => p.name && p.name !== 'self');
+            }
+        }
     } else if (language === 'javascript') {
-        const match = cleanCode.match(/function\s+\w+\s*\(([^)]*)\)/) ||
-            cleanCode.match(/(?:const|let|var)\s+\w+\s*=\s*(?:function\s*)?\(([^)]*)\)/);
-        return match ? extractParamsFromStr(match[1]) : [];
-    } else {
-        // C/C++/Java: match function signature (handle templates with <>)
-        const match = cleanCode.match(/(?:[\w<>:*&]+\s+)+(\w+)\s*\(([^)]*)\)/);
-        return match ? extractParamsFromStr(match[2]) : [];
-    }
-}
-
-function extractParamsWithTypes(paramsStr: string): { name: string, type: string }[] {
-    const params: { name: string, type: string }[] = [];
-    paramsStr.split(',').forEach(param => {
-        const trimmed = param.trim();
-        if (!trimmed) return;
-        const parts = trimmed.split(/\s+/);
-        let name = parts[parts.length - 1];
-        name = name.replace(/[\[\]*&]/g, '');
-        const type = parts.slice(0, parts.length - 1).join(' ') + (parts[parts.length - 1].includes('[]') ? '[]' : '');
-        if (name) params.push({ name, type });
-    });
-    return params;
-}
-
-function extractParamsFromStr(paramsStr: string): string[] {
-    return extractParamsWithTypes(paramsStr).map(p => p.name);
-}
-
-function getWrapper(language: string, input: string, userCode: string) {
-    const vars = parseInputs(input);
-    const varNames = Object.keys(vars);
-
-    // Find the function name
-    let funcName = "";
-    const cleanCode = userCode.replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, "");
-
-    if (language === 'python') {
-        const match = cleanCode.match(/def\s+(\w+)\s*\(/);
-        if (match) funcName = match[1];
-    } else if (language === 'javascript') {
-        const match = cleanCode.match(/function\s+(\w+)\s*\(/) || cleanCode.match(/(?:const|let|var)\s+(\w+)\s*=\s*(?:function|\([^)]*\)\s*=>)/);
-        if (match) funcName = match[1];
-    } else {
-        const matches = [...cleanCode.matchAll(/([\w<>:*&]+)\s+(\w+)\s*\(/g)];
-        if (matches.length > 0) {
-            for (let i = 0; i < matches.length; i++) {
-                const possibleName = matches[i][2];
-                if (!['if', 'while', 'for', 'switch', 'return', 'using', 'std', 'main'].includes(possibleName)) {
-                    funcName = possibleName;
+        // Basic support for class in JS (if used)
+        const classMatch = cleanCode.match(/class\s+(\w+)/);
+        if (classMatch) {
+            analysis.type = 'class';
+            analysis.mainName = classMatch[1];
+            // Very basic method finding for JS classes
+            const methodMatches = [...cleanCode.matchAll(/^\s*(\w+)\s*\(([^)]*)\)\s*\{/gm)];
+            for (const m of methodMatches) {
+                if (m[1] !== 'constructor') {
+                    analysis.entryPoint = m[1];
+                    analysis.params = m[2].split(',').map(p => ({ name: p.trim(), type: 'any' })).filter(p => p.name);
                     break;
                 }
             }
+        } else {
+            analysis.type = 'function';
+            const funcMatch = cleanCode.match(/function\s+(\w+)\s*\(([^)]*)\)/);
+            if (funcMatch) {
+                analysis.mainName = funcMatch[1];
+                analysis.entryPoint = funcMatch[1];
+                analysis.params = funcMatch[2].split(',').map(p => ({ name: p.trim(), type: 'any' })).filter(p => p.name);
+            } else {
+                // Try arrow function const name = (...) =>
+                const arrowMatch = cleanCode.match(/(?:const|var|let)\s+(\w+)\s*=\s*(?:async\s*)?\(([^)]*)\)/);
+                if (arrowMatch) {
+                    analysis.mainName = arrowMatch[1];
+                    analysis.entryPoint = arrowMatch[1];
+                    analysis.params = arrowMatch[2].split(',').map(p => ({ name: p.trim(), type: 'any' })).filter(p => p.name);
+                }
+            }
         }
-    }
-
-    // Get the parameter order from the function signature
-    const paramOrder = extractParamOrder(userCode, language);
-
-    // Match input variables to parameters by name or alias
-    let orderedArgs: string[] = [];
-    const aliases: Record<string, string[]> = {
-        'nums': ['arr', 'a', 'nums1', 'arr1', 'nums2', 'arr2', 'prices', 'root', 'head'],
-        'arr': ['nums', 'a', 'arr1', 'nums1', 'arr2', 'nums2', 'arr', 'prices', 'root', 'head'],
-        'prices': ['arr', 'nums', 'prices'],
-        'arr1': ['nums1', 'nums', 'arr', 'a'],
-        'arr2': ['nums2', 'nums', 'arr', 'b'],
-        'nums1': ['arr1', 'nums', 'arr'],
-        'nums2': ['arr2', 'nums', 'arr'],
-        'a': ['arr', 'nums', 'arr1', 'nums1'],
-        'b': ['arr2', 'nums2', 'arr', 'nums'],
-        'target': ['k', 'x', 'val', 'sum', 'target'],
-        'k': ['target', 'x', 'val', 'sum', 'k'],
-        'x': ['target', 'k', 'val', 'x'],
-        'n': ['size', 'numsSize', 'm', 'len', 'n1', 'n'],
-        'm': ['n', 'size', 'numsSize', 'len', 'n2', 'm'],
-        'matrix': ['grid', 'arr', 'board'],
-        'grid': ['matrix', 'arr', 'board']
-    };
-
-    const paramsUsed = new Set<string>();
-    orderedArgs = paramOrder.map(param => {
-        const p = param.toLowerCase();
-        // 1. Direct match
-        const directMatch = varNames.find(v => v.toLowerCase() === p && !paramsUsed.has(v));
-        if (directMatch) {
-            paramsUsed.add(directMatch);
-            return directMatch;
-        }
-
-        // 2. Alias match
-        const aliasList = aliases[p] || [];
-        const aliasMatch = varNames.find(v => aliasList.includes(v.toLowerCase()) && !paramsUsed.has(v));
-        if (aliasMatch) {
-            paramsUsed.add(aliasMatch);
-            return aliasMatch;
-        }
-
-        const isArrayParam = ['nums', 'arr', 'matrix', 'grid', 'board', 'a', 'b'].some(a => p.includes(a));
-        const isNumParam = ['n', 'm', 'k', 'size', 'len', 'target', 'val', 'x', 'low', 'high', 'mid'].some(n => p === n || p.includes(n));
-        const isStringParam = p.startsWith('s') || p.includes('str') || p.includes('word');
-
-        const isDefaultNameMatch = (v: string) => {
-            const defaultNames = ['root', 'head', 'nums', 'arr', 'n', 's', 'target', 'k'];
-            return defaultNames.includes(v) || v.startsWith('arg');
-        };
-
-        const argMatch = varNames.find(v => {
-            if (!isDefaultNameMatch(v) || paramsUsed.has(v)) return false;
-            const val = String(vars[v]);
-            const isArrayVal = val.startsWith('[') || val.startsWith('{');
-            const isNumVal = !isNaN(Number(val));
-            const isStringVal = val.startsWith('"') || val.startsWith("'");
-
-            if (isArrayParam && isArrayVal) return true;
-            if (isNumParam && isNumVal) return true;
-            if (isStringParam && isStringVal) return true;
-            return false;
-        });
-
-        if (argMatch) {
-            paramsUsed.add(argMatch);
-            return argMatch;
-        }
-
-        // 4. Final fallback - take the first unused default/arg if types are unclear
-        const fallbackArg = varNames.find(v => isDefaultNameMatch(v) && !paramsUsed.has(v));
-        if (fallbackArg) {
-            paramsUsed.add(fallbackArg);
-            return fallbackArg;
-        }
-
-        return param;
-    }).filter(v => varNames.includes(v) || ['n', 'm', 'size', 'numssize', 'len', 'root', 'head', 'target', 'k'].includes(v.toLowerCase()));
-
-    // Fallback to input order if we couldn't match
-    if (orderedArgs.length === 0) {
-        orderedArgs = varNames;
-    }
-
-    const needsMain = (language === 'cpp' || language === 'c' || language === 'java') && !cleanCode.includes('main');
-
-    if (!funcName && !needsMain) {
-        return userCode;
-    }
-
-    switch (language) {
-        case 'python':
-            return `import math\nimport collections\nimport heapq\nimport bisect\nfrom typing import *\n\n${userCode}\n\n${varNames.map(v => `${v} = ${vars[v]}`).join('\n')}\nresult = ${funcName}(${orderedArgs.join(', ')})\nif isinstance(result, list):\n    print('[' + ', '.join(map(str, result)) + ']')\nelif isinstance(result, bool):\n    print('true' if result else 'false')\nelse:\n    print(result)`;
-
-        case 'javascript':
-            return `${userCode}\n\n${varNames.map(v => `const ${v} = ${vars[v]};`).join('\n')}\nconst result = ${funcName}(${orderedArgs.join(', ')});\nif (Array.isArray(result)) {\n  console.log('[' + result.join(', ') + ']');\n} else if (typeof result === 'boolean') {\n  console.log(result ? 'true' : 'false');\n} else {\n  console.log(result);\n}`;
-
-        case 'cpp': {
-            // Detect what types the function uses
-            const usesVectorInt = /vector\s*<\s*int\s*>/.test(cleanCode);
-            const usesVectorLong = /vector\s*<\s*long\s*(long)?\s*>/.test(cleanCode);
-            const usesVectorString = /vector\s*<\s*string\s*>/.test(cleanCode);
-            const usesVector2D = /vector\s*<\s*vector/.test(cleanCode);
-            const usesLongLong = /long\s+long/.test(cleanCode);
-            const usesString = /\bstring\b/.test(cleanCode) && !usesVectorString;
-
-            const cppDecls = varNames.map(v => {
-                const val = vars[v];
-                // Handle arrays/vectors
-                if (val.startsWith('[') || val.startsWith('{')) {
-                    const inner = val.replace(/[\[\]]/g, '').trim();
-                    // Check for 2D arrays
-                    if (val.includes('],[') || val.includes('], [')) {
-                        // 2D array - parse it properly
-                        const rows = val.replace(/^\[|\]$/g, '').split(/\],\s*\[/);
-                        const formatted = rows.map(r => `{${r.replace(/[\[\]]/g, '')}}`).join(', ');
-                        if (usesVector2D) {
-                            return `vector<vector<int>> ${v} = {${formatted}};`;
-                        }
-                    }
-                    // 1D array
-                    if (usesVectorInt || usesVectorLong) {
-                        const vecType = usesVectorLong ? 'vector<long long>' : 'vector<int>';
-                        return `${vecType} ${v} = {${inner}};`;
-                    } else {
-                        // C-style array
-                        const arrType = usesLongLong ? 'long long' : 'int';
-                        return `${arrType} ${v}[] = {${inner}};`;
+    } else if (language === 'java') {
+        // console.log("Clean code for Java analysis:", cleanCode);
+        const classMatch = cleanCode.match(/class\s+(\w+)/);
+        // console.log("Class match:", classMatch);
+        if (classMatch) {
+            analysis.type = 'class';
+            analysis.mainName = classMatch[1];
+            const methodMatches = cleanCode.matchAll(/(?:public|private|protected)?\s*(?:static)?\s*(\w+(?:<[^>]+>)?)\s+(\w+)\s*\(([^)]*)\)/g);
+            for (const m of methodMatches) {
+                if (!['if', 'while', 'for'].includes(m[2]) && m[2] !== classMatch[1]) {
+                    analysis.methods.push(m[2]);
+                    if (!analysis.entryPoint) {
+                        analysis.entryPoint = m[2];
+                        analysis.returnType = m[1];
+                        analysis.isVoid = m[1] === 'void';
+                        analysis.params = parseParams(m[3]);
                     }
                 }
-                // Handle strings
-                if (val.startsWith('"') || val.startsWith("'")) {
-                    return `string ${v} = ${val};`;
-                }
-                // Handle numbers
-                if (!isNaN(Number(val))) {
-                    const numType = usesLongLong ? 'long long' : 'int';
-                    return `${numType} ${v} = ${val};`;
-                }
-                // Handle booleans
-                if (val === 'true' || val === 'false') {
-                    return `bool ${v} = ${val};`;
-                }
-                return `auto ${v} = ${val};`;
-            }).join('\n');
+            }
+        } else {
+            // Standalone method?
+            analysis.type = 'function';
+            const methodMatch = cleanCode.match(/(?:public|private|protected)?\s*(?:static)?\s*([a-zA-Z0-9_<>\[\]]+)\s+(\w+)\s*\(([^)]*)\)\s*\{/);
+            if (methodMatch) {
+                analysis.mainName = methodMatch[2];
+                analysis.entryPoint = methodMatch[2];
+                analysis.returnType = methodMatch[1];
+                analysis.isVoid = methodMatch[1] === 'void';
+                analysis.params = parseParams(methodMatch[3]);
+            }
+        }
+    }
 
-            const cppArgs = orderedArgs.join(', ');
+    return analysis;
+}
 
-            let mainFooter = "";
+function parseParams(paramStr: string): { name: string; type: string }[] {
+    const params: { name: string; type: string }[] = [];
+    const parts = paramStr.split(',');
+    for (const part of parts) {
+        const trimmed = part.trim();
+        if (!trimmed) continue;
 
-            // Common data structure definitions
-            let structDefs = '';
-            let helperFunctions = '';
+        // Find split between type and name
+        const lastSpace = trimmed.lastIndexOf(' ');
+        if (lastSpace !== -1) {
+            let type = trimmed.substring(0, lastSpace).trim();
+            let name = trimmed.substring(lastSpace + 1).replace(/[*&]/g, '').trim();
 
-            // TreeNode for binary tree problems
-            const usesTreeNode = /TreeNode/.test(cleanCode);
-            if (usesTreeNode) {
-                structDefs += `
+            // Handle C-style array syntax int arr[]
+            if (name.endsWith('[]')) {
+                name = name.slice(0, -2);
+                type += '[]';
+            }
+
+            params.push({ type, name });
+        }
+    }
+    return params;
+}
+
+// ==================== WRAPPER GENERATION ====================
+
+export function generateWrapper(language: string, code: string, input: string): string {
+    const parsed = parseTestInput(input);
+    const analysis = analyzeCode(code, language);
+
+    if (language === 'cpp') {
+        return generateCppWrapper(code, parsed, analysis);
+    } else if (language === 'python') {
+        return generatePythonWrapper(code, parsed, analysis);
+    } else if (language === 'javascript') {
+        return generateJsWrapper(code, parsed, analysis);
+    } else if (language === 'java') {
+        return generateJavaWrapper(code, parsed, analysis);
+    } else if (language === 'c') {
+        return generateCWrapper(code, parsed, analysis);
+    }
+
+    return code;
+}
+
+function generateCppWrapper(code: string, parsed: ParsedInput, analysis: CodeAnalysis): string {
+    const includes = `
+#include <iostream>
+#include <vector>
+#include <string>
+#include <algorithm>
+#include <climits>
+#include <cmath>
+#include <queue>
+#include <stack>
+#include <unordered_map>
+#include <unordered_set>
+#include <map>
+#include <set>
+#include <sstream>
+using namespace std;
+`;
+
+    // Helper structs
+    let structs = '';
+    const needsTreeNode = analysis.hasTreeNode && !code.includes('struct TreeNode');
+    const needsListNode = analysis.hasListNode && !code.includes('struct ListNode');
+
+    if (needsTreeNode) {
+        structs += `
 struct TreeNode {
     int val;
-    TreeNode *left;
-    TreeNode *right;
+    TreeNode *left, *right;
     TreeNode() : val(0), left(nullptr), right(nullptr) {}
     TreeNode(int x) : val(x), left(nullptr), right(nullptr) {}
-    TreeNode(int x, TreeNode *left, TreeNode *right) : val(x), left(left), right(right) {}
+    TreeNode(int x, TreeNode *l, TreeNode *r) : val(x), left(l), right(r) {}
 };
 `;
-                helperFunctions += `
-// Helper to build tree from level-order array
-TreeNode* buildTree(vector<int>& nodes) {
-    if (nodes.empty() || nodes[0] == -1001) return nullptr;
-    TreeNode* root = new TreeNode(nodes[0]);
-    queue<TreeNode*> q;
-    q.push(root);
+    }
+    if (needsListNode) {
+        structs += `
+struct ListNode {
+    int val;
+    ListNode *next;
+    ListNode() : val(0), next(nullptr) {}
+    ListNode(int x) : val(x), next(nullptr) {}
+    ListNode(int x, ListNode *n) : val(x), next(n) {}
+};
+`;
+    }
+
+    // Helper functions
+    let helpers = `
+// Helper: print vector
+template<typename T>
+void printVec(const vector<T>& v) {
+    cout << "[";
+    for (size_t i = 0; i < v.size(); i++) {
+        if (i > 0) cout << ", ";
+        cout << v[i];
+    }
+    cout << "]";
+}
+
+// Helper: print 2D vector
+template<typename T>
+void printVec2D(const vector<vector<T>>& v) {
+    cout << "[";
+    for (size_t i = 0; i < v.size(); i++) {
+        if (i > 0) cout << ", ";
+        printVec(v[i]);
+    }
+    cout << "]";
+}
+`;
+
+    if (analysis.hasTreeNode) {
+        helpers += `
+// Helper: build tree from array
+TreeNode* buildTree(vector<int>& v) {
+    if (v.empty() || v[0] == -1001) return nullptr;
+    TreeNode* root = new TreeNode(v[0]);
+    queue<TreeNode*> q; q.push(root);
     int i = 1;
-    while (!q.empty() && i < nodes.size()) {
-        TreeNode* curr = q.front();
-        q.pop();
-        if (i < nodes.size() && nodes[i] != -1001) {
-            curr->left = new TreeNode(nodes[i]);
-            q.push(curr->left);
+    while (!q.empty() && i < (int)v.size()) {
+        TreeNode* node = q.front(); q.pop();
+        if (i < (int)v.size() && v[i] != -1001) {
+            node->left = new TreeNode(v[i]);
+            q.push(node->left);
         }
         i++;
-        if (i < nodes.size() && nodes[i] != -1001) {
-            curr->right = new TreeNode(nodes[i]);
-            q.push(curr->right);
+        if (i < (int)v.size() && v[i] != -1001) {
+            node->right = new TreeNode(v[i]);
+            q.push(node->right);
         }
         i++;
     }
     return root;
 }
 
+// Helper: print tree (level order)
 void printTree(TreeNode* root) {
     if (!root) { cout << "[]"; return; }
-    vector<int> result;
-    queue<TreeNode*> q;
-    q.push(root);
+    vector<int> res;
+    queue<TreeNode*> q; q.push(root);
     while (!q.empty()) {
-        TreeNode* node = q.front();
-        q.pop();
-        if (node) {
-            result.push_back(node->val);
-            q.push(node->left);
-            q.push(node->right);
-        } else {
-            result.push_back(-1001);
-        }
+        TreeNode* n = q.front(); q.pop();
+        if (n) {
+            res.push_back(n->val);
+            q.push(n->left); q.push(n->right);
+        } else res.push_back(-1001);
     }
-    while (!result.empty() && result.back() == -1001) result.pop_back();
+    while (!res.empty() && res.back() == -1001) res.pop_back();
     cout << "[";
-    for (int i = 0; i < result.size(); i++) {
+    for (size_t i = 0; i < res.size(); i++) {
         if (i > 0) cout << ", ";
-        if (result[i] == -1001) cout << "null";
-        else cout << result[i];
+        if (res[i] == -1001) cout << "null";
+        else cout << res[i];
     }
     cout << "]";
 }
 `;
-            }
+    }
 
-            // ListNode for linked list problems
-            const usesListNode = /ListNode/.test(cleanCode);
-            if (usesListNode) {
-                structDefs += `
-struct ListNode {
-    int val;
-    ListNode *next;
-    ListNode() : val(0), next(nullptr) {}
-    ListNode(int x) : val(x), next(nullptr) {}
-    ListNode(int x, ListNode *next) : val(x), next(next) {}
-};
-`;
-                helperFunctions += `
-// Helper to build linked list from array
-ListNode* buildList(vector<int>& nodes) {
-    if (nodes.empty()) return nullptr;
-    ListNode* head = new ListNode(nodes[0]);
+    if (analysis.hasListNode) {
+        helpers += `
+// Helper: build list from array
+ListNode* buildList(vector<int>& v) {
+    if (v.empty()) return nullptr;
+    ListNode* head = new ListNode(v[0]);
     ListNode* curr = head;
-    for (int i = 1; i < nodes.size(); i++) {
-        curr->next = new ListNode(nodes[i]);
+    for (int i = 1; i < (int)v.size(); i++) {
+        curr->next = new ListNode(v[i]);
         curr = curr->next;
     }
     return head;
 }
 
+// Helper: print list
 void printList(ListNode* head) {
     cout << "[";
-    bool first = true;
     while (head) {
-        if (!first) cout << ", ";
         cout << head->val;
-        first = false;
+        if (head->next) cout << ", ";
         head = head->next;
     }
     cout << "]";
 }
 `;
-            }
-
-            // Node for N-ary tree or graph problems
-            if (/\bNode\b/.test(cleanCode) && !usesTreeNode && !usesListNode) {
-                structDefs += `
-struct Node {
-    int val;
-    vector<Node*> children;
-    Node() : val(0) {}
-    Node(int x) : val(x) {}
-    Node(int x, vector<Node*> ch) : val(x), children(ch) {}
-};
-`;
-            }
-
-            // For tree/list problems, build the data structure from input
-            let mainDecls = "";
-            helperFunctions += `
-void __print_coll(int x) { cout << x; }
-void __print_coll(long long x) { cout << x; }
-void __print_coll(double x) { cout << x; }
-void __print_coll(bool x) { cout << (x ? "true" : "false"); }
-void __print_coll(const string& x) { cout << x; }
-void __print_coll(char x) { cout << "'" << x << "'"; }
-
-template<typename T>
-void __print_coll(const vector<T>& v) {
-    cout << "[";
-    for(size_t i=0; i<v.size(); ++i) {
-        if(i>0) cout << ", ";
-        __print_coll(v[i]);
     }
-    cout << "]";
+
+    let mainBody = '';
+    const varDecls: string[] = [];
+    const allVars = { ...parsed.variables };
+
+    if (Object.keys(allVars).length === 0 && parsed.rawValues.length > 0) {
+        const mapped = mapValuesToParams(parsed.rawValues, analysis.params, 'cpp');
+        Object.assign(allVars, mapped);
+    }
+
+    for (const [name, value] of Object.entries(allVars)) {
+        const decl = generateCppVarDecl(name, value, analysis);
+        if (decl) varDecls.push(decl);
+    }
+    mainBody += varDecls.join('\n    ');
+
+    const args = analysis.params.map((p, i) => {
+        const matchesType = (val: string, type: string) => {
+            const isVector = type.includes('vector') || type.includes('[]') || type.includes('*');
+            const isArrayStr = val.trim().startsWith('[');
+            if (isVector && !isArrayStr) return false;
+            if ((type.includes('vector') || type.includes('[]')) && !isArrayStr) return false;
+            return true;
+        };
+        let argName = p.name;
+        let found = false;
+        if (allVars[p.name] && matchesType(allVars[p.name], p.type)) {
+            argName = p.name;
+            found = true;
+        } else {
+            const aliases: Record<string, string[]> = {
+                'nums': ['arr', 'a', 'array'],
+                'arr': ['nums', 'a', 'array'],
+                'n': ['size', 'len', 'numsSize'],
+                'target': ['k', 'sum', 'x'],
+                's': ['str', 'string', 's1'],
+                't': ['str2', 's2'],
+            };
+            for (const alias of (aliases[p.name] || [])) {
+                if (allVars[alias] && matchesType(allVars[alias], p.type)) {
+                    argName = alias;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                if (allVars[`arg${i}`] && matchesType(allVars[`arg${i}`], p.type)) {
+                    argName = `arg${i}`;
+                    found = true;
+                }
+            }
+        }
+        if (['n', 'm', 'size', 'len'].includes(p.name.toLowerCase()) && !found) {
+            for (const [vn, vv] of Object.entries(allVars)) {
+                if (vv.startsWith('[')) {
+                    return `${vn}.size()`;
+                }
+            }
+        }
+        if ((p.type.includes('*') || p.type.includes('[]')) && allVars[argName] && allVars[argName].trim().startsWith('[')) {
+            return `${argName}.data()`;
+        }
+        return argName;
+    });
+
+    if (analysis.type === 'class') {
+        if (parsed.rawValues.length >= 2 && parsed.rawValues[0].startsWith('[') && parsed.rawValues[1].startsWith('[')) {
+            let commands: string[] = [];
+            let params: any[] = [];
+            try {
+                commands = JSON.parse(parsed.rawValues[0]);
+                params = JSON.parse(parsed.rawValues[1]);
+            } catch (e) { }
+
+            if (commands.length > 0 && commands.length === params.length) {
+                // Trust the test case! Use the first command as the class name.
+                // This handles cases where helper classes (like TrieNode) appear before the main class (Trie).
+                if (commands[0] !== analysis.mainName) {
+                    console.log(`Switching mainName from ${analysis.mainName} to ${commands[0]}`);
+                    analysis.mainName = commands[0];
+                }
+
+                console.log(`Checking matching: ${commands[0]} === ${analysis.mainName} -> ${commands[0] === analysis.mainName}`);
+
+                if (commands[0] === analysis.mainName) {
+                    mainBody += `\n    ${analysis.mainName} obj;`;
+                    mainBody += `\n    vector<string> results;`;
+
+                    for (let i = 0; i < commands.length; i++) {
+                        const cmd = commands[i];
+                        const argsIter = params[i];
+                        if (i === 0) {
+                            mainBody += `\n    results.push_back("null");`;
+                            continue;
+                        }
+
+                        const methodRegex = new RegExp(`(?:val|void|int|bool|string|double|float|vector<[^>]+>|ListNode\\*|TreeNode\\*)\\s+${cmd}\\s*\\(`);
+                        const match = code.match(methodRegex);
+                        const isVoid = match ? match[0].includes('void') : (cmd === 'insert' || cmd === 'push' || cmd === 'pop' || cmd === 'update');
+
+                        const formattedArgs = argsIter.map((a: any) => {
+                            if (typeof a === 'string') return `"${a}"`;
+                            if (Array.isArray(a)) return `{${a.join(',')}}`;
+                            return a;
+                        }).join(', ');
+
+                        if (isVoid) {
+                            mainBody += `\n    obj.${cmd}(${formattedArgs});`;
+                            mainBody += `\n    results.push_back("null");`;
+                        } else {
+                            mainBody += `\n    auto res${i} = obj.${cmd}(${formattedArgs});`;
+                            mainBody += `\n    stringstream ss${i};`;
+                            mainBody += `\n    ss${i} << boolalpha << res${i};`;
+                            mainBody += `\n    results.push_back(ss${i}.str());`;
+                        }
+                    }
+                    mainBody += `\n    cout << "[";`;
+                    mainBody += `\n    for(int i=0; i<results.size(); i++) {`;
+                    mainBody += `\n        if(i>0) cout << ", ";`;
+                    mainBody += `\n        if(results[i] == "null") cout << "null";`;
+                    mainBody += `\n        else if(results[i] == "true" || results[i] == "false") cout << results[i];`;
+                    mainBody += `\n        else cout << results[i];`;
+                    mainBody += `\n    }`;
+                    mainBody += `\n    cout << "]" << endl;`;
+
+                    return `${includes}\n${structs}\n${helpers}\n${code}\n\nint main() {\n    ${mainBody}\n    return 0;\n}`;
+                }
+            }
+        }
+
+        const invocation = args.join(', ');
+        mainBody += `\n    ${analysis.mainName} obj;`;
+        if (analysis.isVoid) {
+            mainBody += `\n    obj.${analysis.entryPoint}(${invocation});`;
+            mainBody += `\n    cout << "Class method executed" << endl;`;
+        } else {
+            mainBody += `\n    auto result = obj.${analysis.entryPoint}(${invocation});`;
+            if (analysis.returnType.includes('ListNode')) mainBody += `\n    printList(result);`;
+            else if (analysis.returnType.includes('TreeNode')) mainBody += `\n    printTree(result);`;
+            else if (analysis.returnType.includes('vector<vector')) mainBody += `\n    printVec2D(result);`;
+            else if (analysis.returnType.includes('vector')) mainBody += `\n    printVec(result);`;
+            else if (analysis.returnType.includes('bool')) mainBody += `\n    cout << (result ? "true" : "false") << endl;`;
+            else mainBody += `\n    cout << result << endl;`;
+        }
+    } else {
+        if (analysis.isVoid) {
+            mainBody += `\n    ${analysis.mainName}(${args.join(', ')});`;
+            const arrParam = analysis.params.find(p => p.type.includes('vector') || p.type.includes('[]'));
+            if (arrParam && allVars[arrParam.name]) {
+                mainBody += `\n    printVec(${arrParam.name});`;
+            } else {
+                mainBody += `\n    cout << "void" << endl;`;
+            }
+        } else {
+            mainBody += `\n    auto result = ${analysis.mainName}(${args.join(', ')});`;
+            if (analysis.returnType.includes('ListNode')) mainBody += `\n    printList(result);`;
+            else if (analysis.returnType.includes('TreeNode')) mainBody += `\n    printTree(result);`;
+            else if (analysis.returnType.includes('vector<vector')) mainBody += `\n    printVec2D(result);`;
+            else if (analysis.returnType.includes('vector')) mainBody += `\n    printVec(result);`;
+            else if (analysis.returnType.includes('bool')) mainBody += `\n    cout << (result ? "true" : "false") << endl;`;
+            else mainBody += `\n    cout << result << endl;`;
+        }
+    }
+
+    return `${includes}\n${structs}\n${helpers}\n${code}\n\nint main() {\n    ${mainBody}\n    return 0;\n}`;
 }
+
+function generateCppVarDecl(name: string, value: string, analysis: CodeAnalysis): string {
+    const val = value.trim();
+
+    // Handle null
+    if (val === 'null' || val === 'nullptr') {
+        return `auto ${name} = nullptr;`;
+    }
+
+    // Array/vector
+    if (val.startsWith('[')) {
+        const inner = val.slice(1, -1).trim();
+        // 2D array
+        if (inner.includes('[')) {
+            const rows = val.match(/\[[^\[\]]*\]/g) || [];
+            const formatted = rows.map(r => `{${r.slice(1, -1)}}`).join(', ');
+            // Detect inner type
+            if (formatted.includes('"')) {
+                return `vector<vector<string>> ${name} = {${formatted}};`;
+            } else if (formatted.includes("'")) {
+                return `vector<vector<char>> ${name} = {${formatted}};`;
+            }
+            return `vector<vector<int>> ${name} = {${formatted}};`;
+        }
+
+        // Detect type from elements
+        if (inner.includes('"')) {
+            return `vector<string> ${name} = {${inner}};`;
+        } else if (inner.includes("'")) {
+            return `vector<char> ${name} = {${inner}};`;
+        }
+
+        // Check if building tree or list
+        const param = analysis.params.find(p => p.name === name ||
+            ['root', 'head', 'tree', 'list'].includes(name.toLowerCase()));
+        if (param) {
+            if (param.type.includes('TreeNode') || (analysis.hasTreeNode && name === 'root')) {
+                return `vector<int> ${name}_arr = {${inner.replace(/null/gi, '-1001')}};\nTreeNode* ${name} = buildTree(${name}_arr);`;
+            }
+            if (param.type.includes('ListNode') || (analysis.hasListNode && name === 'head')) {
+                return `vector<int> ${name}_arr = {${inner}};\nListNode* ${name} = buildList(${name}_arr);`;
+            }
+        }
+        return `vector<int> ${name} = {${inner}};`;
+    }
+
+    // String
+    if (val.startsWith('"') || val.startsWith("'")) {
+        return `string ${name} = ${val.startsWith("'") ? '"' + val.slice(1, -1) + '"' : val};`;
+    }
+
+    // Boolean
+    if (val === 'true' || val === 'false') {
+        return `bool ${name} = ${val};`;
+    }
+
+    // Number
+    if (!isNaN(Number(val))) {
+        if (val.includes('.')) {
+            return `double ${name} = ${val};`;
+        }
+        // Check if it's a large number
+        if (Math.abs(Number(val)) > 2147483647) {
+            return `long long ${name} = ${val}LL;`;
+        }
+        return `int ${name} = ${val};`;
+    }
+
+    return `auto ${name} = ${val};`;
+}
+
+
+function generatePythonWrapper(code: string, parsed: ParsedInput, analysis: CodeAnalysis): string {
+    let wrapper = `import collections
+from collections import deque, Counter, defaultdict
+import heapq
+import math
+import json
+from typing import *
+
 `;
 
-            // Get function signature info
-            const funcSignature = cleanCode.match(new RegExp(`\\b(?:void|auto|\\w+|[\\w<>:*&]+)\\s+${funcName}\\s*\\(([^)]*)\\)`));
-            const paramsStr = funcSignature ? funcSignature[1] : '';
-            const paramsInfo = extractParamsWithTypes(paramsStr);
-            const paramNames = paramsInfo.map(p => p.name);
+    // Add code
+    wrapper += code + '\n\n';
 
-            // Transform variable declarations
-            mainDecls = varNames.map((v) => {
-                const val = vars[v];
-                if (val && (val.startsWith('[') || val.startsWith('{'))) {
-                    // Convert [1,2,3] to {1,2,3} and [[1,2],[3,4]] to {{1,2},{3,4}}
-                    const processed = val.replace(/\[/g, '{').replace(/\]/g, '}').replace(/null/gi, '-1001');
+    // DETECT TRANSACTION PATTERN
+    if (parsed.rawValues.length >= 2 && parsed.rawValues[0].startsWith('[') && parsed.rawValues[1].startsWith('[')) {
+        let commands: string[] = [];
+        let params: any[] = [];
+        try {
+            commands = JSON.parse(parsed.rawValues[0]);
+            params = JSON.parse(parsed.rawValues[1]);
+        } catch (e) { }
 
-                    // Find parameter type for this variable
-                    const targetIdx = orderedArgs.indexOf(v);
-                    const pInfo = targetIdx !== -1 ? paramsInfo[targetIdx] : null;
+        if (commands.length > 0 && commands.length === params.length) {
+            // Ensure correct class name usage
+            if (commands[0] !== analysis.mainName && new RegExp(`class\\s+${commands[0]}\\b`).test(code)) {
+                analysis.mainName = commands[0];
+            }
 
-                    // Heuristics for tree/list
-                    const isListOnlyCode = usesListNode && !usesTreeNode;
-                    const isTreeNodeVar = usesTreeNode && (v === 'root' || v.toLowerCase().includes('tree'));
-                    const isListNodeVar = usesListNode && (v === 'head' || v.toLowerCase().includes('list') || (isListOnlyCode && v === 'root'));
+            if (commands[0] === analysis.mainName) {
+                wrapper += `
+results = []
+obj = ${analysis.mainName}()
+results.append("null")
+`;
+                wrapper += `commands = ${JSON.stringify(commands).replace(/"/g, "'")}\n`;
+                wrapper += `params = ${JSON.stringify(params)}\n`;
 
-                    if (isTreeNodeVar) {
-                        const pureArr = val.replace(/[\[\]]/g, '').trim().replace(/null/gi, '-1001');
-                        return `vector<int> ${v}_arr = {${pureArr}};\nTreeNode* ${v} = buildTree(${v}_arr);`;
-                    }
-                    if (isListNodeVar) {
-                        const pureArr = val.replace(/[\[\]]/g, '').trim().replace(/null/gi, '-1001');
-                        return `vector<int> ${v}_arr = {${pureArr}};\nListNode* ${v} = buildList(${v}_arr);`;
-                    }
+                wrapper += `
+for i in range(1, len(commands)):
+    cmd = commands[i]
+    args = params[i]
+    if cmd == 'get' or cmd == 'search' or cmd == 'startsWith' or cmd == 'top' or cmd == 'peek' or cmd == 'empty' or cmd == 'hasNext' or cmd == 'next' or cmd == 'param_1':
+        try:
+            method = getattr(obj, cmd)
+            res = method(*args)
+            if res is True: results.append("true")
+            elif res is False: results.append("false")
+            elif res is None: results.append("null")
+            else: results.append(str(res))
+        except Exception as e:
+            results.append("null")
+    else:
+        try:
+            method = getattr(obj, cmd)
+            method(*args)
+            results.append("null")
+        except Exception as e:
+            results.append("null")
 
-                    if (pInfo) {
-                        let type = pInfo.type.replace(/&/g, '').trim();
-                        if (type.includes('[]')) {
-                            const baseType = type.replace('[]', '').trim();
-                            return `${baseType} ${v}[] = ${processed};`;
-                        }
-                        if (type.includes('*') && !type.includes('**')) {
-                            const baseType = type.replace('*', '').trim();
-                            return `${baseType} ${v}[] = ${processed};`;
-                        }
-                        return `${type} ${v} = ${processed};`;
-                    }
+print("[" + ", ".join(results) + "]")
+`;
+                return wrapper;
+            }
+        }
+    }
 
-                    // Fallback heuristics
-                    if (val.includes('[[')) {
-                        return `vector<vector<int>> ${v} = ${processed};`;
-                    }
-                    return `vector<int> ${v} = ${processed};`;
+    // Build variables
+    let allVars = { ...parsed.variables };
+    if (Object.keys(allVars).length === 0) {
+        if (parsed.rawValues.length > 0) {
+            const mapped = mapValuesToParams(parsed.rawValues, analysis.params, 'python');
+            allVars = { ...allVars, ...mapped };
+
+            // If any params unmapped, fill remaining sequentially? mapValuesToParams handles fallback.
+        }
+    }
+
+    for (const [name, value] of Object.entries(allVars)) {
+        wrapper += `${name} = ${value}\n`;
+    }
+
+    // Call function
+    if (analysis.type === 'function' && analysis.mainName) {
+        const args = analysis.params.map(p => {
+            if (allVars[p.name]) return p.name;
+            return Object.keys(allVars).find(k => k.toLowerCase() === p.name.toLowerCase()) || p.name;
+        });
+        wrapper += `result = ${analysis.mainName}(${args.join(', ')})\n`;
+        wrapper += `if isinstance(result, list):
+    print('[' + ', '.join(str(x) for x in result) + ']')
+elif isinstance(result, bool):
+    print('true' if result else 'false')
+else:
+    print(result)
+`;
+    } else if (analysis.type === 'class') {
+        wrapper += `obj = ${analysis.mainName}()\nprint('Class instantiated')`;
+    }
+
+    return wrapper;
+}
+
+function generateJsWrapper(code: string, parsed: ParsedInput, analysis: CodeAnalysis): string {
+    let wrapper = code + '\n\n';
+
+    // DETECT TRANSACTION PATTERN
+    if (parsed.rawValues.length >= 2 && parsed.rawValues[0].startsWith('[') && parsed.rawValues[1].startsWith('[')) {
+        let commands: string[] = [];
+        let params: any[] = [];
+        try {
+            commands = JSON.parse(parsed.rawValues[0]);
+            params = JSON.parse(parsed.rawValues[1]);
+        } catch (e) { }
+
+        if (commands.length > 0 && commands.length === params.length) {
+            if (commands[0] !== analysis.mainName && new RegExp(`class\\s+${commands[0]}\\b`).test(code)) {
+                analysis.mainName = commands[0];
+            }
+
+            if (commands[0] === analysis.mainName) {
+                wrapper += `
+const results = [];
+const obj = new ${analysis.mainName}();
+results.push("null");
+
+const commands = ${JSON.stringify(commands)};
+const params = ${JSON.stringify(params)};
+
+for (let i = 1; i < commands.length; i++) {
+    const cmd = commands[i];
+    const args = params[i];
+    
+    // Check if method exists
+    if (typeof obj[cmd] === 'function') {
+        const res = obj[cmd](...args);
+        
+        if (res === undefined || res === null) {
+            results.push("null");
+        } else if (res === true) {
+            results.push("true");
+        } else if (res === false) {
+            results.push("false");
+        } else {
+            results.push(res.toString());
+        }
+    } else {
+        results.push("null");
+    }
+}
+
+console.log("[" + results.join(", ") + "]");
+`;
+                return wrapper;
+            }
+        }
+    }
+
+    let allVars = { ...parsed.variables };
+    if (Object.keys(allVars).length === 0) {
+        if (parsed.rawValues.length > 0) {
+            const mapped = mapValuesToParams(parsed.rawValues, analysis.params, 'javascript');
+            allVars = { ...allVars, ...mapped };
+        }
+    }
+
+    for (const [name, value] of Object.entries(allVars)) {
+        wrapper += `const ${name} = ${value};\n`;
+    }
+
+    if (analysis.type === 'function' && analysis.mainName) {
+        const args = analysis.params.map(p => allVars[p.name] ? p.name : Object.keys(allVars)[0] || p.name);
+        wrapper += `const result = ${analysis.mainName}(${args.join(', ')});\n`;
+        wrapper += `if (Array.isArray(result)) {
+    console.log('[' + result.join(', ') + ']');
+} else if (typeof result === 'boolean') {
+    console.log(result ? 'true' : 'false');
+} else {
+    console.log(result);
+}`;
+    }
+
+    return wrapper;
+}
+
+function generateJavaWrapper(code: string, parsed: ParsedInput, analysis: CodeAnalysis): string {
+    // Remove public from classes to avoid file name issues
+    let cleanCode = code.replace(/public\s+class/g, 'class');
+
+    let wrapper = `import java.util.*;
+import java.io.*;
+
+public class Main {
+    public static void main(String[] args) {
+`;
+
+    // DETECT TRANSACTION PATTERN
+    let isTransaction = false;
+    if (parsed.rawValues.length >= 2 && parsed.rawValues[0].startsWith('[') && parsed.rawValues[1].startsWith('[')) {
+        let commands: string[] = [];
+        let params: any[] = [];
+        try {
+            commands = JSON.parse(parsed.rawValues[0]);
+            params = JSON.parse(parsed.rawValues[1]);
+        } catch (e) { }
+
+        if (commands.length > 0 && commands.length === params.length) {
+            if (commands[0] === analysis.mainName || (commands[0] !== analysis.mainName && code.includes(`class ${commands[0]}`))) {
+                // Update main name if it matches command
+                if (commands[0] !== analysis.mainName && code.includes(`class ${commands[0]}`)) {
+                    analysis.mainName = commands[0];
                 }
-                if (val && !isNaN(Number(val))) return `int ${v} = ${val};`;
-                if (val && (val.startsWith('"') || val.startsWith("'"))) return `string ${v} = ${val};`;
-                if (val) return `auto ${v} = ${val};`;
-                return '';
-            }).filter(s => s).join('\n');
+                if (commands[0] === analysis.mainName) {
+                    isTransaction = true;
+                    wrapper += `        ${analysis.mainName} obj = new ${analysis.mainName}();\n`;
+                    wrapper += `        List<String> results = new ArrayList<>();\n`;
+                    wrapper += `        results.add("null");\n`;
 
-            // Handle missing size parameters in mainDecls
-            orderedArgs.forEach((arg, idx) => {
-                if (!varNames.includes(arg) && ['n', 'm', 'size', 'numssize', 'len'].includes(arg.toLowerCase())) {
-                    // Try to find a preceding array/vector to infer size from
-                    const prevArrayName = orderedArgs.slice(0, idx).find(a => {
-                        const val = vars[a];
-                        return val && (val.startsWith('[') || val.startsWith('{'));
-                    });
+                    for (let i = 1; i < commands.length; i++) {
+                        const cmd = commands[i];
+                        const args = params[i]; // Array of args
 
-                    if (prevArrayName) {
-                        const prevTargetIdx = orderedArgs.indexOf(prevArrayName);
-                        const prevPInfo = prevTargetIdx !== -1 ? paramsInfo[prevTargetIdx] : null;
-                        const isCArr = prevPInfo && (prevPInfo.type.includes('[]') || prevPInfo.type.includes('*'));
+                        // Heuristic for return type: get/search/is -> print, others -> void
+                        // Better: use 'isVoid' from analysis if we can find the method.
+                        // But analysis.methods is just a list of names.
 
-                        if (isCArr) {
-                            mainDecls += `\nint ${arg} = sizeof(${prevArrayName})/sizeof(${prevArrayName}[0]);`;
+                        // Let's assume common void prefixes or assume void if not a query
+                        const isQuery = cmd.startsWith('get') || cmd.startsWith('search') || cmd.startsWith('is') || cmd.startsWith('top') || cmd.startsWith('peek') || cmd.startsWith('param') || cmd.startsWith('startsWith');
+
+                        const argsFormatted = args.map((a: any) => {
+                            if (typeof a === 'string') return `"${a}"`;
+                            if (Array.isArray(a)) return `{${a.join(',')}}`; // Java array init? No, usually arguments are primitives or objects.
+                            // If arg is array, it might be messy.
+                            return a;
+                        }).join(', ');
+
+                        if (isQuery) {
+                            wrapper += `        results.add(String.valueOf(obj.${cmd}(${argsFormatted})));\n`;
                         } else {
-                            mainDecls += `\nint ${arg} = ${prevArrayName}.size();`;
+                            wrapper += `        obj.${cmd}(${argsFormatted});\n`;
+                            wrapper += `        results.add("null");\n`;
                         }
-                    } else {
-                        mainDecls += `\nint ${arg} = 0;`;
+                    }
+
+                    wrapper += `        System.out.print("[");\n`;
+                    wrapper += `        for(int i=0; i<results.size(); i++) {\n`;
+                    wrapper += `            if(i > 0) System.out.print(", ");\n`;
+                    wrapper += `            String res = results.get(i);\n`;
+                    wrapper += `            if(res.equals("true") || res.equals("false")) System.out.print(res);\n`;
+                    wrapper += `            else if(res.equals("null")) System.out.print("null");\n`;
+                    wrapper += `            else System.out.print(res);\n`;
+                    wrapper += `        }\n`;
+                    wrapper += `        System.out.println("]");\n`;
+
+                    wrapper += `    }\n}`;
+                    // Append user code at the end
+                    wrapper += `\n${cleanCode}\n`;
+                    return wrapper;
+                }
+            }
+        }
+    }
+
+    let allVars = { ...parsed.variables };
+    if (Object.keys(allVars).length === 0) {
+        if (parsed.rawValues.length > 0) {
+            const mapped = mapValuesToParams(parsed.rawValues, analysis.params, 'java');
+            allVars = { ...allVars, ...mapped };
+        }
+    }
+
+    for (const [name, value] of Object.entries(allVars)) {
+        if (value.startsWith('[')) {
+            const inner = value.slice(1, -1);
+            wrapper += `        int[] ${name} = {${inner}};\n`;
+        } else if (!isNaN(Number(value))) {
+            wrapper += `        int ${name} = ${value};\n`;
+        } else {
+            wrapper += `        String ${name} = ${value};\n`;
+        }
+    }
+
+    if (analysis.type === 'function' && analysis.mainName) {
+        const args = analysis.params.map(p => p.name);
+        wrapper += `        Main sol = new Main();\n`;
+        wrapper += `        System.out.println(sol.${analysis.mainName}(${args.join(', ')}));\n`;
+    }
+
+    wrapper += `    }\n`; // Close main method
+
+    if (analysis.type === 'function') {
+        wrapper += `\n${cleanCode}\n`; // Inside Main class
+        wrapper += `}`; // Close Main class
+    } else {
+        wrapper += `}\n`; // Close Main class
+        wrapper += `\n${cleanCode}\n`; // Outside Main class
+    }
+
+    return wrapper;
+}
+
+
+
+function generateCWrapper(code: string, parsed: ParsedInput, analysis: CodeAnalysis): string {
+    // Basic C wrapper, no transaction support added yet as it's complex
+    let wrapper = `#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdbool.h>
+#include <limits.h>
+
+${code}
+
+int main() {
+`;
+
+    let allVars = { ...parsed.variables };
+    if (Object.keys(allVars).length === 0) {
+        if (parsed.rawValues.length > 0) {
+            const mapped = mapValuesToParams(parsed.rawValues, analysis.params, 'c');
+            allVars = { ...allVars, ...mapped };
+        }
+    }
+
+    for (const [name, value] of Object.entries(allVars)) {
+        if (value.trim().startsWith('[')) {
+            const inner = value.slice(1, -1);
+            wrapper += `    int ${name}[] = {${inner}};\n`;
+            wrapper += `    int ${name}_size = sizeof(${name})/sizeof(${name}[0]);\n`;
+        } else if (!isNaN(Number(value))) {
+            wrapper += `    int ${name} = ${value};\n`;
+        } else {
+            // String
+            wrapper += `    char* ${name} = "${value}";\n`;
+        }
+    }
+
+    // DETECT TRANSACTION PATTERN
+    if (parsed.rawValues.length >= 2 && parsed.rawValues[0].startsWith('[') && parsed.rawValues[1].startsWith('[')) {
+        let commands: string[] = [];
+        let params: any[] = [];
+        try {
+            commands = JSON.parse(parsed.rawValues[0]);
+            params = JSON.parse(parsed.rawValues[1]);
+        } catch (e) { }
+
+        if (commands.length > 0) {
+            // Assume first command is constructor
+            // The structure in C usually has:
+            // Struct Name (e.g. Trie)
+            // Create func (e.g. trieCreate)
+            // Methods takes obj* as first arg (e.g. trieInsert(Trie* obj, ...))
+
+            // Find create function
+            // Or 'create' + ClassName, or just look for a function returning the Struct*
+            // But usually LeetCode C style is: ClassName* classNameCreate()
+
+            // We need to map "Trie" -> "trieCreate"
+            // And "insert" -> "trieInsert"
+
+            const className = commands[0];
+            const objName = "obj";
+
+            // Infer function names
+            // Constructor: trieCreate or similar. 
+            // We can look at analysis.mainName/methods if we had full C analysis, but we rely on standard conventions or brute force mapping.
+
+            // Heuristic function to find the correct C function name
+            const prefix = className.toLowerCase();
+            const findMethod = (cmd: string): string => {
+                const candidates = [
+                    prefix + cmd.charAt(0).toUpperCase() + cmd.slice(1), // trieInsert
+                    cmd, // countWordsEqualTo
+                    prefix + '_' + cmd, // trie_insert (rare but possible)
+                    prefix + cmd // trieinsert
+                ];
+
+                // If analysis.methods is available, use it to validate
+                if (analysis.methods && analysis.methods.length > 0) {
+                    for (const cand of candidates) {
+                        if (analysis.methods.includes(cand)) return cand;
+                    }
+                    // Fuzzy match?
+                    const lowerCmd = cmd.toLowerCase();
+                    const match = analysis.methods.find(m => m.toLowerCase().endsWith(lowerCmd));
+                    if (match) return match;
+                }
+
+                return candidates[0]; // Default to prefixed
+            };
+
+            let createFunc = findMethod('create');
+            if (!createFunc) {
+                // Try to guess: prefix + Create, or just 'create'
+                const candidates = [prefix + 'Create', prefix + '_create', 'create'];
+                for (const c of candidates) {
+                    if (code.includes(c)) {
+                        createFunc = c;
+                        break;
                     }
                 }
-            });
+                if (!createFunc) createFunc = prefix + 'Create'; // Ultimate fallback
+            }
 
-            // Smart output handling
-            mainFooter = "";
-            if (funcName) {
-                const beforeFunc = cleanCode.split(funcName)[0] || '';
-                const isVoidFunc = /\bvoid\s*$/.test(beforeFunc.trim());
+            wrapper += `    // Transaction execution\n`;
+            wrapper += `    printf("[");\n`;
 
-                if (isVoidFunc) {
-                    const outputMatch = paramsStr.match(/(?:vector\s*<\s*\w+\s*>\s*&|int\s+\w+\[\]|int\s*\*)\s*(\w+)/);
-                    const targetParamName = outputMatch ? outputMatch[1] : (paramNames.length > 0 ? paramNames[0] : null);
+            wrapper += `    ${className}* ${objName} = ${createFunc}();\n`;
+            wrapper += `    printf("null");\n`; // Constructor result
 
-                    if (targetParamName) {
-                        const targetIdx = paramNames.indexOf(targetParamName);
-                        const actualArgName = (targetIdx !== -1 && orderedArgs[targetIdx]) ? orderedArgs[targetIdx] : targetParamName;
+            for (let i = 1; i < commands.length; i++) {
+                const cmd = commands[i];
+                const args = params[i];
+                const method = findMethod(cmd);
 
-                        if (paramsStr.includes('vector')) {
-                            mainFooter = `::${funcName}(${cppArgs});\n__print_coll(${actualArgName});\ncout << endl;`;
-                        } else {
-                            const sizeParamName = paramNames.find(p => ['n', 'm', 'size', 'numsSize', 'len'].includes(p.toLowerCase()));
-                            const sizeIdx = sizeParamName ? paramNames.indexOf(sizeParamName) : -1;
-                            const actualSizeName = (sizeIdx !== -1 && orderedArgs[sizeIdx]) ? orderedArgs[sizeIdx] : sizeParamName;
+                wrapper += `    printf(", ");\n`;
 
-                            if (actualSizeName && varNames.includes(actualSizeName)) {
-                                mainFooter = `::${funcName}(${cppArgs});\ncout << "["; for(int i=0; i<${actualSizeName}; i++) { if(i>0) cout << ", "; cout << ${actualArgName}[i]; } cout << "]" << endl;`;
-                            } else {
-                                mainFooter = `::${funcName}(${cppArgs});\ncout << "void" << endl;`;
-                            }
-                        }
-                    } else {
-                        mainFooter = `::${funcName}(${cppArgs});\ncout << "void" << endl;`;
-                    }
-                } else if (/TreeNode\s*\*/.test(beforeFunc.slice(-30))) {
-                    mainFooter = `TreeNode* res = ::${funcName}(${cppArgs});\nprintTree(res);\ncout << endl;`;
-                } else if (/ListNode\s*\*/.test(beforeFunc.slice(-30))) {
-                    mainFooter = `ListNode* res = ::${funcName}(${cppArgs});\nprintList(res);\ncout << endl;`;
-                } else if (/vector\s*</.test(beforeFunc.slice(-50))) {
-                    mainFooter = `auto res = ::${funcName}(${cppArgs});\n__print_coll(res);\ncout << endl;`;
-                } else if (/\bbool\b/.test(beforeFunc.slice(-20))) {
-                    mainFooter = `bool res = ::${funcName}(${cppArgs});\ncout << (res ? "true" : "false") << endl;`;
+                // Generate args string
+                const argStr = args.map((a: any) => {
+                    if (typeof a === 'string') return `"${a}"`;
+                    return a;
+                }).join(', ');
+
+                // Call method
+                // We need to know return type.
+                // Void returns "null".
+                // Bool returns true/false.
+                // Int returns number.
+
+                // Simple regex check for return type of the method in the code
+                const methodRegex = new RegExp(`(void|bool|int|double|char\\*|string)\\s+${method}\\s*\\(`);
+                const match = code.match(methodRegex);
+                const retType = match ? match[1] : (method === 'completeString' ? 'char*' : 'void'); // default to void if not found
+
+                if (retType === 'void') {
+                    wrapper += `    ${method}(${objName}${args.length > 0 ? ', ' + argStr : ''});\n`;
+                    wrapper += `    printf("null");\n`;
+                } else if (retType === 'bool') {
+                    wrapper += `    printf("%s", ${method}(${objName}${args.length > 0 ? ', ' + argStr : ''}) ? "true" : "false");\n`;
+                } else if (retType === 'int') {
+                    wrapper += `    printf("%d", ${method}(${objName}${args.length > 0 ? ', ' + argStr : ''}));\n`;
+                } else if (retType === 'char*' || retType === 'char *') {
+                    // Strings in JSON output should be quoted if not null/true/false, but here we expect just the value if result check compares raw strings?
+                    // Actually output comparison usually expects unquoted unless it's a string type in JSON
+                    // But in executeCode we normalize.
+                    // Let's print bare string first.
+                    wrapper += `    printf("\\"%s\\"", ${method}(${objName}${args.length > 0 ? ', ' + argStr : ''}));\n`;
                 } else {
-                    mainFooter = `auto res = ::${funcName}(${cppArgs});\ncout << res << endl;`;
+                    // fallback
+                    wrapper += `    ${method}(${objName}${args.length > 0 ? ', ' + argStr : ''});\n`;
+                    wrapper += `    printf("null");\n`;
                 }
             }
 
-            return `#include <iostream>\n#include <vector>\n#include <string>\n#include <algorithm>\n#include <climits>\n#include <cmath>\n#include <queue>\n#include <stack>\n#include <unordered_map>\n#include <unordered_set>\nusing namespace std;\n${structDefs}\n${helperFunctions}\n${userCode}\n\nint main() {\n${mainDecls}\n${mainFooter}\nreturn 0;\n}`;
+            wrapper += `    printf("]\\n");\n`;
+            wrapper += `    return 0;\n`;
+            wrapper += `}\n`;
+            return wrapper;
         }
-
-        case 'c': {
-            const cDecls = varNames.map(v => {
-                const val = vars[v];
-                if (val.startsWith('[') || val.startsWith('{')) {
-                    const inner = val.replace(/[\[\]]/g, '').trim();
-                    return `int ${v}[] = {${inner}}; int ${v}_size = sizeof(${v})/sizeof(${v}[0]);`;
-                }
-                if (val.startsWith('"') || val.startsWith("'")) {
-                    return `char ${v}[] = ${val};`;
-                }
-                return `int ${v} = ${val};`;
-            }).join('\n');
-
-            const cArgs = orderedArgs.join(', ');
-            const cFooter = funcName ? `printf("%d\\n", ${funcName}(${cArgs}));` : "";
-            return `#include <stdio.h>\n#include <stdlib.h>\n#include <string.h>\n#include <stdbool.h>\n\n${userCode}\n\nint main() {\n${cDecls}\n${cFooter}\nreturn 0;\n}`;
-        }
-
-        case 'java': {
-            // Detect what types Java function uses
-            const usesArrayList = /ArrayList/.test(cleanCode);
-            const usesList = /List\s*</.test(cleanCode);
-            const usesLong = /long/.test(cleanCode);
-            const usesDouble = /double/.test(cleanCode);
-            const usesFloat = /float/.test(cleanCode);
-
-            const javaDecls = varNames.map(v => {
-                const val = vars[v];
-                if (val.startsWith('[') || val.startsWith('{')) {
-                    const inner = val.replace(/[\[\]]/g, '').trim();
-                    if (usesArrayList || usesList) {
-                        return `ArrayList<Integer> ${v} = new ArrayList<>(Arrays.asList(${inner.split(',').map(x => x.trim()).join(', ')}));`;
-                    }
-                    const type = usesLong ? 'long[]' : 'int[]';
-                    return `${type} ${v} = {${inner}};`;
-                }
-                if (val && val.startsWith('"')) return `String ${v} = ${val};`;
-                if (val === 'true' || val === 'false') return `boolean ${v} = ${val};`;
-                if (val && !isNaN(Number(val))) {
-                    if (val.includes('.') || usesDouble) return `double ${v} = ${val};`;
-                    if (usesFloat) return `float ${v} = ${val};`;
-                    if (usesLong) return `long ${v} = ${val};`;
-                    return `int ${v} = ${val};`;
-                }
-                return `Object ${v} = ${val};`; // Fallback
-            }).join('\n');
-
-            // Extract imports from userCode to place them outside the class
-            const importMatches = userCode.match(/^\s*import\s+.+;/gm) || [];
-            const userCodeWithoutImports = userCode.replace(/^\s*import\s+.+;/gm, '');
-
-            // If user already provided a class Solution or a main method, we have to be very careful.
-            // For now, let's assume they might want to use our main if they didn't provide one.
-            const hasMain = userCode.includes('public static void main');
-            const hasSolutionClass = userCode.includes('class Solution');
-
-            if (hasMain && hasSolutionClass) {
-                return `import java.util.*;\n${importMatches.join('\n')}\n${userCodeWithoutImports}`;
-            }
-
-            const javaFooter = funcName ? `System.out.println(sol.${funcName}(${orderedArgs.join(', ')}));` : "";
-            return `import java.util.*;\n${importMatches.join('\n')}\n\npublic class Solution {\n${userCodeWithoutImports}\n\npublic static void main(String[] args) {\n    Solution sol = new Solution();\n${javaDecls}\n    ${javaFooter}\n}\n}`;
-        }
-
-        default:
-            return userCode;
     }
+
+    if (analysis.type === 'function' && analysis.mainName) {
+        const args = analysis.params.map(p => {
+            if (allVars[p.name]) return p.name;
+            // Try to match strict size param
+            if (p.name === 'n' || p.name === 'size' || p.name.includes('Size')) {
+                // Find array param corresponding?
+                // Or if we have mapped it already?
+                // If mapValuesToParams worked, it should be in allVars.
+                // But mapValuesToParams maps VALUES.
+                // If 'n' was mapped to value '5', it returns 'n'.
+                // If 'n' was NOT mapped (e.g. implicit size), we need to derive it.
+                // But in C usually size IS passed.
+                // Let's assume mapValuesToParams did its job.
+            }
+            return p.name; // Fallback
+        });
+
+        // Print result based on return type
+        if (analysis.isVoid) {
+            wrapper += `    ${analysis.mainName}(${args.join(', ')});\n`;
+            // Check if we need to print arrays modified in place?
+            // For now just void.
+            wrapper += `    printf("void");\n`; // Or verify output
+        } else {
+            if (analysis.returnType.includes('char*') || analysis.returnType.includes('char *')) {
+                wrapper += `    char* result = ${analysis.mainName}(${args.join(', ')});\n`;
+                // For Complete String problem, output is string.
+                wrapper += `    printf("%s", result);\n`;
+            } else if (analysis.returnType === 'int') {
+                wrapper += `    int result = ${analysis.mainName}(${args.join(', ')});\n`;
+                wrapper += `    printf("%d", result);\n`;
+            } else if (analysis.returnType === 'bool') {
+                wrapper += `    bool result = ${analysis.mainName}(${args.join(', ')});\n`;
+                wrapper += `    printf("%s", result ? "true" : "false");\n`;
+            } else {
+                wrapper += `    printf("Result");\n`; // Fallback
+            }
+        }
+    }
+
+    wrapper += `    return 0;
+}`;
+
+    return wrapper;
 }
+
+// ==================== HELPER FUNCTIONS ====================
+
+function mapValuesToParams(values: string[], params: { name: string, type: string }[], language: string): Record<string, string> {
+    const map: Record<string, string> = {};
+    const consumed = new Array(values.length).fill(false);
+
+    // Heuristics
+    const isArrayType = (type: string) => type.includes('[]') || type.includes('vector') || type.includes('List') || type.includes('Array');
+    const isArrayVal = (val: string) => val.trim().startsWith('[');
+    const isIntType = (type: string) => type === 'int' || type === 'long' || type === 'Integer' || type === 'size_t';
+    const isIntVal = (val: string) => /^-?\d+$/.test(val.trim());
+
+    for (const param of params) {
+        let matchedIdx = -1;
+
+        // 1. Precise Type Match (if typed)
+        if (language === 'cpp' || language === 'java' || language === 'c') {
+            if (isArrayType(param.type)) {
+                matchedIdx = values.findIndex((v, i) => !consumed[i] && isArrayVal(v));
+            } else if (isIntType(param.type)) {
+                matchedIdx = values.findIndex((v, i) => !consumed[i] && isIntVal(v) && !isArrayVal(v)); // Ensure int doesn't match single element array if ambiguous, but isArrayVal checks start with [
+            }
+        }
+
+        // 2. Name Heuristic (for untyped or fallback)
+        if (matchedIdx === -1) {
+            if (['arr', 'nums', 'list', 'vector', 'matrix'].some(s => param.name.toLowerCase().includes(s))) {
+                matchedIdx = values.findIndex((v, i) => !consumed[i] && isArrayVal(v));
+            } else if (['n', 'm', 'size', 'len', 'target', 'k', 'val'].some(s => param.name === s || param.name.toLowerCase().includes(s))) {
+                matchedIdx = values.findIndex((v, i) => !consumed[i] && isIntVal(v));
+            }
+        }
+
+        // 3. Fallback: First available
+        if (matchedIdx === -1) {
+            matchedIdx = values.findIndex((v, i) => !consumed[i]);
+        }
+
+        if (matchedIdx !== -1) {
+            consumed[matchedIdx] = true;
+            map[param.name] = values[matchedIdx];
+        }
+    }
+    return map;
+}
+
+// ==================== OUTPUT NORMALIZATION ====================
+
+function normalizeOutput(str: string): string {
+    let normalized = str.trim().toLowerCase();
+    // Remove brackets and special chars for comparison
+    normalized = normalized.replace(/[\[\]{},()]/g, '');
+    normalized = normalized.replace(/\s+/g, ' ').trim();
+    // Handle trailing zeros
+    if (/^\d+\.0+$/.test(normalized)) {
+        normalized = normalized.replace(/\.0+$/, '');
+    }
+    return normalized;
+}
+
+function compareOutputs(actual: string, expected: string): boolean {
+    const normActual = normalizeOutput(actual);
+    const normExpected = normalizeOutput(expected);
+
+    // Direct match
+    if (normActual === normExpected) return true;
+
+    // Boolean conversion
+    if ((normExpected === 'true' && normActual === '1') ||
+        (normExpected === 'false' && normActual === '0')) {
+        return true;
+    }
+
+    // Sorted comparison for arrays (some problems have order-independent output)
+    const sortStr = (s: string) => s.split(' ').sort((a, b) => Number(a) - Number(b)).join(' ');
+    if (sortStr(normActual) === sortStr(normExpected)) return true;
+
+    return false;
+}
+
+// ==================== MAIN EXECUTION ====================
 
 async function requestWithRetry(config: any, retries = 2): Promise<any> {
     try {
         return await axios(config);
     } catch (err: any) {
-        if (retries > 0 && (err.code === 'ETIMEDOUT' || err.code === 'ECONNABORTED' || err.status === 429)) {
+        const isRateLimit = err.response?.status === 429 ||
+            (err.response?.status === 400 && err.response?.data?.message?.includes('Requests limited'));
+
+        if (retries > 0 && (err.code === 'ETIMEDOUT' || err.code === 'ECONNABORTED' || isRateLimit)) {
             await new Promise(r => setTimeout(r, 2000));
             return requestWithRetry(config, retries - 1);
         }
@@ -725,8 +1310,12 @@ export async function executeCode(
         const tc = testCases[i];
         const isHidden = isHiddenMap[i] || false;
 
+        // Rate limit buffer
+        await new Promise(r => setTimeout(r, 300));
+
         try {
-            const wrappedCode = getWrapper(language, tc.input, code);
+            const wrappedCode = generateWrapper(language, code, tc.input);
+
             if (process.env.DEBUG_EXECUTOR) {
                 console.log("--- WRAPPED CODE ---");
                 console.log(wrappedCode);
@@ -739,100 +1328,41 @@ export async function executeCode(
                 data: {
                     language: langConfig.language,
                     version: langConfig.version,
-                    files: [{ content: wrappedCode }],
+                    files: [{ name: language === 'java' ? 'Main.java' : undefined, content: wrappedCode }],
                 },
-                timeout: 12000,
+                timeout: 15000,
             });
 
             const output = response.data.run.output?.trim() || "";
             const stderr = response.data.run.stderr || "";
+            const compileOutput = response.data.compile?.stderr || "";
 
-            if (stderr) {
+            if (stderr || compileOutput) {
                 results.push({
                     input: tc.input,
                     expected: tc.output,
                     actual: output,
                     passed: false,
-                    error: stderr,
+                    error: (compileOutput ? "COMPILE_ERR: " + compileOutput + "\n" : "") + (stderr ? "STDERR: " + stderr : ""),
                     isHidden
                 });
             } else {
-                // Comprehensive output normalization
-                const normalizeOutput = (str: string): string => {
-                    let normalized = str.trim().toLowerCase();
-                    // Remove all collection-related characters for robust comparison
-                    normalized = normalized.replace(/[\[\]{},()]/g, "");
-
-                    // Replace commas with empty space/remove them
-                    normalized = normalized.replace(/,/g, "");
-
-                    // Remove all whitespace
-                    normalized = normalized.replace(/[\s\n\r]/g, "");
-
-                    // Handle trailing zeros in floats: 3.0 vs 3
-                    if (/^\d+\.0+$/.test(normalized)) {
-                        normalized = normalized.replace(/\.0+$/, "");
-                    }
-
-                    return normalized;
-                };
-
-                let normalizedActual = normalizeOutput(output);
-                let normalizedExpected = normalizeOutput(tc.output);
-
-                // Only convert 0/1 to true/false if the expected output is a boolean
-                const expectedIsBoolean = normalizedExpected === 'true' || normalizedExpected === 'false';
-                if (expectedIsBoolean) {
-                    if (normalizedActual === '1') normalizedActual = 'true';
-                    if (normalizedActual === '0') normalizedActual = 'false';
-                }
-
-                // Handle -1 as "not found" - both -1 and "notfound" should work
-                if (normalizedExpected === '-1' || normalizedExpected === 'notfound') {
-                    if (normalizedActual === '-1' || normalizedActual === 'notfound') {
-                        normalizedActual = normalizedExpected;
-                    }
-                }
-
-                let passed = normalizedActual === normalizedExpected;
-
-                // Lenient comparison for 1D arrays: if they don't match, try sorting them
-                if (!passed && output.startsWith('[') && output.endsWith(']') && !output.includes('[[')) {
-                    try {
-                        const sortOutput = (s: string) => {
-                            const inner = s.replace(/[\[\]]/g, '').split(',')
-                                .map(x => x.trim())
-                                .filter(x => x)
-                                .sort((a, b) => {
-                                    const na = Number(a), nb = Number(b);
-                                    if (!isNaN(na) && !isNaN(nb)) return na - nb;
-                                    return a.localeCompare(b);
-                                });
-                            return inner.join(',');
-                        };
-                        if (sortOutput(output) === sortOutput(tc.output)) {
-                            passed = true;
-                        }
-                    } catch (e) { }
-                }
-
+                const passed = compareOutputs(output, tc.output);
                 results.push({
                     input: tc.input,
                     expected: tc.output,
                     actual: output,
-                    passed: passed,
+                    passed,
                     isHidden
                 });
             }
-        } catch (err: any) {
+        } catch (error: any) {
             results.push({
                 input: tc.input,
                 expected: tc.output,
-                actual: "",
+                actual: '',
                 passed: false,
-                error: (err.code === 'ETIMEDOUT' || err.code === 'ECONNABORTED')
-                    ? "The code execution server is busy. Please wait a few seconds and try again."
-                    : err.message,
+                error: (error as Error).message,
                 isHidden
             });
         }
@@ -840,3 +1370,4 @@ export async function executeCode(
 
     return results;
 }
+
