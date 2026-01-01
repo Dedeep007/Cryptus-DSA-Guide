@@ -40,7 +40,7 @@ export async function registerRoutes(
   // Doubts routes
   app.use("/api/doubts", isAuthenticated, doubtsRouter);
 
-  // Application Routes
+  // ==================== Topic Routes ====================
 
   app.get(api.topics.list.path, async (req, res) => {
     const topics = await storage.getTopics();
@@ -59,17 +59,103 @@ export async function registerRoutes(
     if (!topic) {
       return res.status(404).json({ message: "Topic not found" });
     }
+
     const problems = await storage.getProblemsByTopicId(topic.id);
-    res.json({ ...topic, problems });
+    const examples = await storage.getTopicExamples(topic.id);
+
+    res.json({ ...topic, problems, codeExamples: examples });
   });
+
+  // Topic examples endpoint - get all examples for a topic
+  app.get("/api/topics/:slug/examples", async (req, res) => {
+    const slug = req.params.slug;
+    const examples = await storage.getTopicExamplesBySlug(slug);
+    res.json(examples);
+  });
+
+  // Topic example by language endpoint
+  app.get("/api/topics/:slug/examples/:language", async (req, res) => {
+    const slug = req.params.slug;
+    const language = req.params.language;
+
+    const topic = await storage.getTopicBySlug(slug);
+    if (!topic) {
+      return res.status(404).json({ message: "Topic not found" });
+    }
+
+    const example = await storage.getTopicExampleByLanguage(topic.id, language);
+    if (!example) {
+      return res.status(404).json({ message: `No example available for ${language}` });
+    }
+    res.json(example);
+  });
+
+  // ==================== Problem Routes ====================
 
   app.get(api.problems.get.path, async (req, res) => {
     const problem = await storage.getProblem(Number(req.params.id));
     if (!problem) {
       return res.status(404).json({ message: "Problem not found" });
     }
-    res.json(problem);
+
+    // Get solutions for this problem
+    const solutions = await storage.getSolutionsByProblemId(problem.id);
+
+    res.json({ ...problem, solutions });
   });
+
+  // Get solutions for a problem
+  app.get("/api/problems/:id/solutions", async (req, res) => {
+    const problemId = Number(req.params.id);
+    if (isNaN(problemId)) {
+      return res.status(400).json({ message: "Invalid problem ID" });
+    }
+    const solutions = await storage.getSolutionsByProblemId(problemId);
+    res.json(solutions);
+  });
+
+  // Get solution by language
+  app.get("/api/problems/:id/solutions/:language", async (req, res) => {
+    const problemId = Number(req.params.id);
+    const language = req.params.language;
+
+    if (isNaN(problemId)) {
+      return res.status(400).json({ message: "Invalid problem ID" });
+    }
+
+    const solution = await storage.getSolutionByLanguage(problemId, language);
+    if (!solution) {
+      return res.status(404).json({ message: `No solution available for ${language}` });
+    }
+    res.json(solution);
+  });
+
+  // Legacy code snippets endpoint (deprecated - use /solutions instead)
+  app.get("/api/problems/:id/code", async (req, res) => {
+    const problemId = Number(req.params.id);
+    if (isNaN(problemId)) {
+      return res.status(400).json({ message: "Invalid problem ID" });
+    }
+    const snippets = await storage.getSolutionsByProblemId(problemId);
+    res.json(snippets);
+  });
+
+  app.get("/api/problems/:id/code/:language", async (req, res) => {
+    const problemId = Number(req.params.id);
+    const language = req.params.language;
+
+    if (isNaN(problemId)) {
+      return res.status(400).json({ message: "Invalid problem ID" });
+    }
+
+    const solution = await storage.getSolutionByLanguage(problemId, language);
+    if (!solution) {
+      return res.status(404).json({ message: `No code available for ${language}` });
+    }
+    res.json(solution);
+  });
+
+  // ==================== Code Execution Routes ====================
 
   app.post(api.problems.run.path, async (req, res) => {
     try {
@@ -119,6 +205,7 @@ export async function registerRoutes(
       const submission = await storage.createSubmission({
         userId: (req.user as User).id,
         problemId: problemId,
+        language: language,
         code,
         status,
       });
@@ -135,18 +222,20 @@ export async function registerRoutes(
     }
   });
 
+  // ==================== Submission Routes ====================
+
   app.get(api.submissions.list.path, isAuthenticated, async (req, res) => {
     const submissions = await storage.getUserSubmissions((req.user as User).id);
     res.json(submissions);
   });
 
-  // User stats endpoint
+  // ==================== User Stats & Leaderboard ====================
+
   app.get(api.user.stats.path, isAuthenticated, async (req, res) => {
     const stats = await storage.getUserStats((req.user as User).id);
     res.json(stats);
   });
 
-  // Leaderboard endpoint
   app.get(api.leaderboard.list.path, async (req, res) => {
     try {
       const limit = req.query.limit ? Number(req.query.limit) : 50;
@@ -157,7 +246,8 @@ export async function registerRoutes(
     }
   });
 
-  // AI Assistant chat endpoint
+  // ==================== AI Assistant Routes ====================
+
   app.post("/api/ai/chat", isAuthenticated, async (req, res) => {
     try {
       const { message, context } = req.body;
@@ -166,114 +256,18 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Message is required" });
       }
 
-      // Pass context to AI (includes page, problem info, user code)
       const response = await generateAIResponse(message, context);
       res.json({ response });
     } catch (err) {
       console.error('AI chat error:', err);
-      // Return a user-friendly error
       res.json({
         response: "I'm having a brief moment. Please try again in a few seconds! 💫"
       });
     }
   });
 
-  // Code snippets endpoint - get all snippets for a problem
-  app.get("/api/problems/:id/code", async (req, res) => {
-    const problemId = Number(req.params.id);
-    if (isNaN(problemId)) {
-      return res.status(400).json({ message: "Invalid problem ID" });
-    }
-    const snippets = await storage.getCodeSnippets(problemId);
-    res.json(snippets);
-  });
-
-  // Code snippet by language endpoint
-  app.get("/api/problems/:id/code/:language", async (req, res) => {
-    const problemId = Number(req.params.id);
-    const language = req.params.language;
-    const type = req.query.type as string || 'solution';
-
-    if (isNaN(problemId)) {
-      return res.status(400).json({ message: "Invalid problem ID" });
-    }
-
-    const snippet = await storage.getCodeSnippetByLanguageAndType(problemId, language, type);
-    if (!snippet) {
-      return res.status(404).json({ message: `No ${type} code available for ${language}` });
-    }
-    res.json(snippet);
-  });
-
-  // Topic examples endpoint - get all examples for a topic
-  app.get("/api/topics/:slug/examples", async (req, res) => {
-    const slug = req.params.slug;
-    const examples = await storage.getTopicExamples(slug);
-    res.json(examples);
-  });
-
-  // Topic example by language endpoint
-  app.get("/api/topics/:slug/examples/:language", async (req, res) => {
-    const slug = req.params.slug;
-    const language = req.params.language;
-
-    const example = await storage.getTopicExampleByLanguage(slug, language);
-    if (!example) {
-      return res.status(404).json({ message: `No example available for ${language}` });
-    }
-    res.json(example);
-  });
-
-  // Seed Data (if empty)
-  await seedDatabase();
+  // Database should be seeded via ingestion script, not auto-seeded
+  console.log('📦 Routes registered. Run ingest-merged-data.ts to populate database.');
 
   return httpServer;
-}
-
-async function seedDatabase() {
-  const existingTopics = await storage.getTopics();
-  if (existingTopics.length === 0) {
-    const arraysTopic = await storage.createTopic({
-      title: "Arrays",
-      description: "Learn about array data structures and common algorithms.",
-      order: 1,
-      slug: "arrays",
-    });
-
-    await storage.createProblem({
-      topicId: arraysTopic.id,
-      title: "Two Sum",
-      difficulty: "Easy",
-      order: 1,
-      description: "Given an array of integers `nums` and an integer `target`, return indices of the two numbers such that they add up to `target`.",
-      initialCode: "function twoSum(nums, target) {\n  // Your code here\n}",
-      testCases: JSON.stringify([
-        { input: "nums = [2,7,11,15], target = 9", output: "[0,1]" },
-        { input: "nums = [3,2,4], target = 6", output: "[1,2]" }
-      ]),
-      conceptExplanation: "The Two Sum problem can be solved efficiently using a Hash Map to store the complements of numbers seen so far.",
-      workedExample: "Example: nums = [2, 7, 11, 15], target = 9. \n1. Visit 2, needed: 7. Map: {2: 0}\n2. Visit 7, needed: 2. 2 is in map. Return [0, 1].",
-    });
-
-    const linkedListsTopic = await storage.createTopic({
-      title: "Linked Lists",
-      description: "Understand singly and doubly linked lists.",
-      order: 2,
-      slug: "linked-lists",
-    });
-
-    await storage.createProblem({
-      topicId: linkedListsTopic.id,
-      title: "Reverse Linked List",
-      difficulty: "Medium",
-      order: 1,
-      description: "Given the head of a singly linked list, reverse the list, and return the reversed list.",
-      initialCode: "function reverseList(head) {\n  // Your code here\n}",
-      testCases: JSON.stringify([
-        { input: "head = [1,2,3,4,5]", output: "[5,4,3,2,1]" }
-      ]),
-      conceptExplanation: "To reverse a linked list, you need to change the `next` pointer of each node to point to the previous node.",
-      workedExample: "Iterate through the list, keeping track of `prev`, `current`, and `next` nodes. At each step, `current.next = prev`.",
-    });
-  }
 }

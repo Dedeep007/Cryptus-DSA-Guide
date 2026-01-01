@@ -274,7 +274,9 @@ void printVec2D_Rows(const vector<vector<T>>& v) {
             }
             break;
         case 'n_array_k':
-            if (hints?.paramTypes?.includes('int[]')) {
+            if (hints?.isVoid) {
+                funcCall = `${funcName}(arr, n, k)`;
+            } else if (hints?.paramTypes?.includes('int[]')) {
                 funcCall = `${funcName}(arr.data(), n, k)`;
             } else {
                 funcCall = `${funcName}(arr, k)`;
@@ -397,7 +399,11 @@ ${code}
             }
             break;
         case 'n_array_k':
-            funcCall = `${funcName}(arr, k)`;
+            if (isVoid && hints?.paramNames?.includes('n')) {
+                funcCall = `${funcName}(arr, n, k)`;
+            } else {
+                funcCall = `${funcName}(arr, k)`;
+            }
             break;
         case 'two_arrays':
             funcCall = `${funcName}(arr, arr2, n, m)`;
@@ -502,7 +508,11 @@ function generateJsProblemWrapper(code: string, input: ParsedValues, config: Pro
             funcCall = `${funcName}(arr, n)`;
             break;
         case 'n_array_k':
-            funcCall = `${funcName}(arr, k)`;
+            if (isVoid) {
+                funcCall = `${funcName}(arr, n, k)`;
+            } else {
+                funcCall = `${funcName}(arr, k)`;
+            }
             break;
         case 'n_m_2d_matrix':
             funcCall = `${funcName}(matrix)`;

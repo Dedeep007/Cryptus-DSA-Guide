@@ -1,16 +1,16 @@
 import { db } from "./db";
 import {
-  topics, problems, submissions, users, doubts, doubtResponses, codeSnippets, topicExamples,
+  topics, problems, submissions, users, doubts, doubtResponses, solutions, topicExamples,
   type Topic, type Problem, type Submission, type User, type UpsertUser,
-  type InsertTopic, type InsertProblem, type InsertSubmission, type CodeSnippet, type InsertCodeSnippet, type TopicExample
+  type InsertTopic, type InsertProblem, type InsertSubmission, type Solution, type InsertSolution, type TopicExample
 } from "@shared/schema";
 import { eq, asc, desc, and, sql } from "drizzle-orm";
 
 // XP values per difficulty
-const XP_VALUES = {
-  Easy: 50,
-  Medium: 100,
-  Hard: 200,
+const XP_VALUES: Record<string, number> = {
+  easy: 50,
+  medium: 100,
+  hard: 200,
 };
 
 export interface UserStats {
@@ -34,6 +34,8 @@ export interface LeaderboardEntry {
   streak: number;
 }
 
+// ==================== Storage Interface ====================
+
 export interface IStorage {
   // User methods
   getUserById(id: string): Promise<User | undefined>;
@@ -44,10 +46,24 @@ export interface IStorage {
   getTopics(): Promise<Topic[]>;
   getTopic(id: number): Promise<Topic | undefined>;
   getTopicBySlug(slug: string): Promise<Topic | undefined>;
+
+  // Topic example methods
+  getTopicExamples(topicId: number): Promise<TopicExample[]>;
+  getTopicExamplesBySlug(slug: string): Promise<TopicExample[]>;
+  getTopicExampleByLanguage(topicId: number, language: string): Promise<TopicExample | undefined>;
+
+  // Problem methods
   getProblemsByTopicId(topicId: number): Promise<Problem[]>;
   getProblem(id: number): Promise<Problem | undefined>;
-  createTopic(topic: InsertTopic): Promise<Topic>;
   createProblem(problem: InsertProblem): Promise<Problem>;
+  getAllProblems(): Promise<Problem[]>;
+
+  // Solution methods
+  getSolutionsByProblemId(problemId: number): Promise<Solution[]>;
+  getSolutionByLanguage(problemId: number, language: string): Promise<Solution | undefined>;
+  createSolution(solution: InsertSolution): Promise<Solution>;
+
+  // Submission methods
   createSubmission(submission: InsertSubmission): Promise<Submission>;
   getUserSubmissions(userId: string): Promise<Submission[]>;
   getUserStats(userId: string): Promise<UserStats>;
@@ -61,20 +77,13 @@ export interface IStorage {
   getDoubtById(id: number): Promise<any>;
   createDoubtResponse(doubtId: number, userId: string, response: string, isMentor?: boolean): Promise<any>;
   getDoubtResponses(doubtId: number): Promise<any[]>;
-
-  // Problem methods
-  getAllProblems(): Promise<any[]>;
-  updateProblemDescription(problemId: number, description: string): Promise<void>;
-  upsertCodeSnippet(snippet: InsertCodeSnippet): Promise<CodeSnippet>;
-
-  // Topic example methods
-  getTopicExamples(topicSlug: string): Promise<TopicExample[]>;
-  getTopicExampleByLanguage(topicSlug: string, language: string): Promise<TopicExample | undefined>;
 }
 
+// ==================== Database Storage Implementation ====================
 
 export class DatabaseStorage implements IStorage {
-  // User methods
+  // ==================== User Methods ====================
+
   async getUserById(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
     return user;
@@ -90,6 +99,8 @@ export class DatabaseStorage implements IStorage {
     return newUser;
   }
 
+  // ==================== Topic Methods ====================
+
   async getTopics(): Promise<Topic[]> {
     return await db.select().from(topics).orderBy(asc(topics.order));
   }
@@ -104,16 +115,41 @@ export class DatabaseStorage implements IStorage {
     return topic;
   }
 
+  // ==================== Topic Example Methods ====================
+
+  async getTopicExamples(topicId: number): Promise<TopicExample[]> {
+    return await db.select().from(topicExamples).where(eq(topicExamples.topicId, topicId));
+  }
+
+  async getTopicExamplesBySlug(slug: string): Promise<TopicExample[]> {
+    const topic = await this.getTopicBySlug(slug);
+    if (!topic) return [];
+    return await db.select().from(topicExamples).where(eq(topicExamples.topicId, topic.id));
+  }
+
+  async getTopicExampleByLanguage(topicId: number, language: string): Promise<TopicExample | undefined> {
+    const [example] = await db.select().from(topicExamples)
+      .where(and(eq(topicExamples.topicId, topicId), eq(topicExamples.language, language)));
+    return example;
+  }
+
+  // ==================== Problem Methods ====================
+
   async getProblemsByTopicId(topicId: number): Promise<Problem[]> {
-    const problemList = await db.select().from(problems).where(eq(problems.topicId, topicId)).orderBy(asc(problems.order));
+    const problemList = await db.select().from(problems)
+      .where(eq(problems.topicId, topicId))
+      .orderBy(asc(problems.order));
+
     return problemList.map(problem => {
       let testCases = [];
       try {
-        testCases = typeof problem.testCases === 'string' ? JSON.parse(problem.testCases) : (problem.testCases || []);
+        testCases = typeof problem.testCases === 'string'
+          ? JSON.parse(problem.testCases)
+          : (problem.testCases || []);
       } catch (e) {
         console.error(`Error parsing testCases for problem ${problem.id}:`, e);
       }
-      return { ...problem, testCases };
+      return { ...problem, testCases } as any;
     });
   }
 
@@ -122,18 +158,15 @@ export class DatabaseStorage implements IStorage {
     if (problem) {
       let testCases = [];
       try {
-        testCases = typeof problem.testCases === 'string' ? JSON.parse(problem.testCases) : (problem.testCases || []);
+        testCases = typeof problem.testCases === 'string'
+          ? JSON.parse(problem.testCases)
+          : (problem.testCases || []);
       } catch (e) {
         console.error(`Error parsing testCases for problem ${problem.id}:`, e);
       }
-      return { ...problem, testCases };
+      return { ...problem, testCases } as any;
     }
     return problem;
-  }
-
-  async createTopic(topic: InsertTopic): Promise<Topic> {
-    const [newTopic] = await db.insert(topics).values(topic).returning();
-    return newTopic;
   }
 
   async createProblem(problem: InsertProblem): Promise<Problem> {
@@ -145,47 +178,66 @@ export class DatabaseStorage implements IStorage {
     return {
       ...newProblem,
       testCases: JSON.parse(newProblem.testCases)
-    };
+    } as any;
   }
 
-  async getAllProblems(): Promise<any[]> {
+  async getAllProblems(): Promise<Problem[]> {
     const problemList = await db.select().from(problems).orderBy(asc(problems.id));
     return problemList.map(problem => ({
       ...problem,
       testCases: JSON.parse(problem.testCases)
-    }));
+    })) as any;
   }
 
-  async updateProblemDescription(problemId: number, description: string): Promise<void> {
-    await db.update(problems).set({ description }).where(eq(problems.id, problemId));
+  // ==================== Solution Methods ====================
+
+  async getSolutionsByProblemId(problemId: number): Promise<Solution[]> {
+    return await db.select().from(solutions).where(eq(solutions.problemId, problemId));
   }
 
-  async upsertCodeSnippet(snippet: InsertCodeSnippet): Promise<CodeSnippet> {
-    // First try to find existing snippet
-    const existing = await db.select().from(codeSnippets)
+  async getSolutionByLanguage(problemId: number, language: string): Promise<Solution | undefined> {
+    const [solution] = await db.select().from(solutions)
+      .where(and(eq(solutions.problemId, problemId), eq(solutions.language, language)));
+    return solution;
+  }
+
+  async createSolution(solution: InsertSolution): Promise<Solution> {
+    const [newSolution] = await db.insert(solutions).values(solution).returning();
+    return newSolution;
+  }
+
+  // Legacy alias methods for backward compatibility (deprecated)
+  async getCodeSnippets(problemId: number): Promise<Solution[]> {
+    return this.getSolutionsByProblemId(problemId);
+  }
+
+  async getCodeSnippetByLanguage(problemId: number, language: string): Promise<Solution | undefined> {
+    return this.getSolutionByLanguage(problemId, language);
+  }
+
+  async upsertCodeSnippet(snippet: InsertSolution): Promise<Solution> {
+    const existing = await db.select().from(solutions)
       .where(and(
-        eq(codeSnippets.problemId, snippet.problemId),
-        eq(codeSnippets.language, snippet.language),
-        eq(codeSnippets.type, snippet.type)
+        eq(solutions.problemId, snippet.problemId),
+        eq(solutions.language, snippet.language)
       ));
 
     if (existing.length > 0) {
-      // Update existing
-      const [updated] = await db.update(codeSnippets)
+      const [updated] = await db.update(solutions)
         .set({ code: snippet.code })
         .where(and(
-          eq(codeSnippets.problemId, snippet.problemId),
-          eq(codeSnippets.language, snippet.language),
-          eq(codeSnippets.type, snippet.type)
+          eq(solutions.problemId, snippet.problemId),
+          eq(solutions.language, snippet.language)
         ))
         .returning();
       return updated;
     } else {
-      // Create new
-      const [newSnippet] = await db.insert(codeSnippets).values(snippet).returning();
-      return newSnippet;
+      const [newSolution] = await db.insert(solutions).values(snippet).returning();
+      return newSolution;
     }
   }
+
+  // ==================== Submission Methods ====================
 
   async createSubmission(submission: InsertSubmission): Promise<Submission> {
     const [newSubmission] = await db.insert(submissions).values(submission).returning();
@@ -197,11 +249,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUserStats(userId: string): Promise<UserStats> {
-    // Get total problems count
     const totalResult = await db.select({ count: sql<number>`count(*)` }).from(problems);
     const total = Number(totalResult[0]?.count || 0);
 
-    // Get user's passed submissions with problem difficulties
     const userSubmissions = await db
       .select({
         problemId: submissions.problemId,
@@ -212,7 +262,6 @@ export class DatabaseStorage implements IStorage {
       .innerJoin(problems, eq(submissions.problemId, problems.id))
       .where(and(eq(submissions.userId, userId), eq(submissions.status, "passed")));
 
-    // Get unique solved problems (only count first solve per problem)
     const solvedProblems = new Map<number, { difficulty: string; createdAt: Date | null }>();
     for (const sub of userSubmissions) {
       if (!solvedProblems.has(sub.problemId)) {
@@ -220,56 +269,33 @@ export class DatabaseStorage implements IStorage {
       }
     }
 
-    // Count by difficulty
-    let easyCount = 0;
-    let mediumCount = 0;
-    let hardCount = 0;
-    let xp = 0;
+    let easyCount = 0, mediumCount = 0, hardCount = 0, xp = 0;
 
     for (const [, { difficulty }] of Array.from(solvedProblems.entries())) {
       const normalized = difficulty?.toLowerCase().trim();
-      if (normalized === "easy") {
-        easyCount++;
-        xp += XP_VALUES.Easy;
-      } else if (normalized === "medium") {
-        mediumCount++;
-        xp += XP_VALUES.Medium;
-      } else if (normalized === "hard") {
-        hardCount++;
-        xp += XP_VALUES.Hard;
-      }
+      if (normalized === "easy") { easyCount++; xp += XP_VALUES.easy; }
+      else if (normalized === "medium") { mediumCount++; xp += XP_VALUES.medium; }
+      else if (normalized === "hard") { hardCount++; xp += XP_VALUES.hard; }
     }
 
-    // Calculate streak (consecutive days with at least one solve)
     const streak = this.calculateStreak(Array.from(solvedProblems.values()).map(s => s.createdAt));
 
-    return {
-      solved: solvedProblems.size,
-      total,
-      streak,
-      xp,
-      easyCount,
-      mediumCount,
-      hardCount,
-    };
+    return { solved: solvedProblems.size, total, streak, xp, easyCount, mediumCount, hardCount };
   }
 
   private calculateStreak(dates: (Date | null)[]): number {
     const validDates = dates
       .filter((d): d is Date => d !== null)
       .map(d => new Date(d).toDateString())
-      .filter((value, index, self) => self.indexOf(value) === index) // unique dates
-      .sort((a, b) => new Date(b).getTime() - new Date(a).getTime()); // newest first
+      .filter((value, index, self) => self.indexOf(value) === index)
+      .sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
 
     if (validDates.length === 0) return 0;
 
     const today = new Date().toDateString();
     const yesterday = new Date(Date.now() - 86400000).toDateString();
 
-    // Check if streak is still active (solved today or yesterday)
-    if (validDates[0] !== today && validDates[0] !== yesterday) {
-      return 0;
-    }
+    if (validDates[0] !== today && validDates[0] !== yesterday) return 0;
 
     let streak = 1;
     let currentDate = new Date(validDates[0]);
@@ -287,17 +313,16 @@ export class DatabaseStorage implements IStorage {
     return streak;
   }
 
-  async getLeaderboard(limit: number = 50): Promise<LeaderboardEntry[]> {
-    // Get all users
-    const allUsers = await db.select().from(users);
+  // ==================== Leaderboard ====================
 
-    // Calculate stats for each user
+  async getLeaderboard(limit: number = 50): Promise<LeaderboardEntry[]> {
+    const allUsers = await db.select().from(users);
     const leaderboardData: LeaderboardEntry[] = [];
 
     for (const user of allUsers) {
       const stats = await this.getUserStats(user.id);
       leaderboardData.push({
-        rank: 0, // Will be assigned after sorting
+        rank: 0,
         userId: user.id,
         firstName: user.firstName || 'Anonymous',
         lastName: user.lastName || '',
@@ -308,22 +333,19 @@ export class DatabaseStorage implements IStorage {
       });
     }
 
-    // Sort by Streak (desc), then XP (desc), then Solved (desc)
     leaderboardData.sort((a, b) => {
       if (b.streak !== a.streak) return b.streak - a.streak;
       if (b.xp !== a.xp) return b.xp - a.xp;
       return b.solved - a.solved;
     });
 
-    // Assign ranks
-    leaderboardData.forEach((entry, index) => {
-      entry.rank = index + 1;
-    });
+    leaderboardData.forEach((entry, index) => { entry.rank = index + 1; });
 
     return leaderboardData.slice(0, limit);
   }
 
-  // Doubt methods
+  // ==================== Doubt Methods ====================
+
   async createDoubt(doubt: { userId: string; problemId?: number; title: string; description: string; code?: string }) {
     const [newDoubt] = await db.insert(doubts).values(doubt).returning();
     return newDoubt;
@@ -340,51 +362,16 @@ export class DatabaseStorage implements IStorage {
 
   async createDoubtResponse(doubtId: number, userId: string, response: string, isMentor = false) {
     const [newResponse] = await db.insert(doubtResponses).values({
-      doubtId,
-      userId,
-      response,
-      isMentor,
+      doubtId, userId, response, isMentor,
     }).returning();
     return newResponse;
   }
 
   async getDoubtResponses(doubtId: number) {
-    return await db.select().from(doubtResponses).where(eq(doubtResponses.doubtId, doubtId)).orderBy(asc(doubtResponses.createdAt));
-  }
-
-  // Code snippet methods
-  async getCodeSnippets(problemId: number): Promise<CodeSnippet[]> {
-    return await db.select().from(codeSnippets).where(and(eq(codeSnippets.problemId, problemId), eq(codeSnippets.type, 'solution')));
-  }
-
-  async getCodeSnippetByLanguage(problemId: number, language: string): Promise<CodeSnippet | undefined> {
-    const [snippet] = await db.select().from(codeSnippets)
-      .where(and(eq(codeSnippets.problemId, problemId), eq(codeSnippets.language, language), eq(codeSnippets.type, 'solution')));
-    return snippet;
-  }
-
-  async getCodeSnippetByLanguageAndType(problemId: number, language: string, type: string): Promise<CodeSnippet | undefined> {
-    const [snippet] = await db.select().from(codeSnippets)
-      .where(and(eq(codeSnippets.problemId, problemId), eq(codeSnippets.language, language), eq(codeSnippets.type, type)));
-    return snippet;
-  }
-
-  async createCodeSnippet(snippet: InsertCodeSnippet): Promise<CodeSnippet> {
-    const [newSnippet] = await db.insert(codeSnippets).values(snippet).returning();
-    return newSnippet;
-  }
-
-  // Topic example methods
-  async getTopicExamples(topicSlug: string): Promise<TopicExample[]> {
-    return await db.select().from(topicExamples).where(eq(topicExamples.topicSlug, topicSlug));
-  }
-
-  async getTopicExampleByLanguage(topicSlug: string, language: string): Promise<TopicExample | undefined> {
-    const [example] = await db.select().from(topicExamples)
-      .where(and(eq(topicExamples.topicSlug, topicSlug), eq(topicExamples.language, language)));
-    return example;
+    return await db.select().from(doubtResponses)
+      .where(eq(doubtResponses.doubtId, doubtId))
+      .orderBy(asc(doubtResponses.createdAt));
   }
 }
 
 export const storage = new DatabaseStorage();
-

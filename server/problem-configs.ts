@@ -1,82 +1,108 @@
 /**
  * Problem-Specific Execution Configurations
- * 
- * This file defines explicit input parsing and output formatting rules for each problem.
- * Instead of relying on generic heuristics, each problem has its own configuration.
+ * Each problem has explicit input parsing and output formatting rules.
  */
 
 export interface ProblemConfig {
-    // Input parsing configuration
     inputFormat: InputFormat;
-    // Output comparison configuration
     outputFormat: OutputFormat;
-    // Wrapper generation hints per language
     wrapperHints?: WrapperHints;
 }
 
 export type InputFormat =
-    | { type: 'n_then_array' }                           // "n\narr" - first line is size, second is space-separated array
-    | { type: 'array_only' }                              // Just an array on a single line or multiple lines
-    | { type: 'n_array_k' }                               // "n\narr\nk" - size, array, then target/k value
-    | { type: 'two_arrays' }                              // "n\narr1\nm\narr2" - two arrays with sizes
-    | { type: 'n_m_2d_matrix' }                           // "rows cols\nrow1\nrow2..." - 2D matrix
-    | { type: 'n_m_array_target' }                        // "n target\narray" - size and target on first line
-    | { type: 'single_number' }                           // Just a single number
-    | { type: 'two_numbers_array' }                       // "m n\narr1\narr2" for merge sorted with sizes
-    | { type: 'class_transaction' }                       // ["ClassName", "method1"...] / [[args1], [args2]...]
-    | { type: 'custom', parser: string };                 // Custom parsing logic
+    | { type: 'n_then_array' }
+    | { type: 'array_only' }
+    | { type: 'n_array_k' }
+    | { type: 'two_arrays' }
+    | { type: 'n_m_2d_matrix' }
+    | { type: 'n_m_array_target' }
+    | { type: 'single_number' }
+    | { type: 'two_numbers_array' }
+    | { type: 'class_transaction' }
+    | { type: 'custom', parser: string };
 
 export type OutputFormat =
-    | { type: 'single_number' }                           // Just a number
-    | { type: 'array_space_separated' }                   // Numbers separated by spaces
-    | { type: 'array_json' }                              // [1, 2, 3] format
-    | { type: 'array_2d_json' }                           // [[1,2],[3,4]] format
-    | { type: 'array_2d_rows' }                           // Multiple rows, each space-separated
-    | { type: 'boolean' }                                 // true/false
-    | { type: 'string' }                                  // String output
-    | { type: 'class_results' }                           // [null, true, false, 1, null...]
-    | { type: 'void_array' }                              // Void return, print modified array
-    | { type: 'unordered_array' };                        // Order doesn't matter
+    | { type: 'single_number' }
+    | { type: 'array_space_separated' }
+    | { type: 'array_json' }
+    | { type: 'array_2d_json' }
+    | { type: 'array_2d_rows' }
+    | { type: 'boolean' }
+    | { type: 'string' }
+    | { type: 'class_results' }
+    | { type: 'void_array' }
+    | { type: 'unordered_array' };
 
 export interface WrapperHints {
-    cpp?: {
-        functionName: string;
-        paramTypes: string[];
-        returnType: string;
-        isVoid?: boolean;
-    };
-    python?: {
-        functionName: string;
-        paramNames: string[];
-    };
-    java?: {
-        functionName: string;
-        className?: string;
-    };
-    javascript?: {
-        functionName: string;
-    };
-    c?: {
-        functionName: string;
-        paramTypes: string[];
-        returnType: string;
-    };
+    cpp?: { functionName: string; paramTypes?: string[]; returnType?: string; isVoid?: boolean };
+    python?: { functionName: string; paramNames?: string[]; isVoid?: boolean };
+    java?: { functionName: string; className?: string; isVoid?: boolean };
+    javascript?: { functionName: string; isVoid?: boolean };
+    c?: { functionName: string; paramTypes?: string[]; returnType?: string; isVoid?: boolean };
 }
 
-/**
- * Problem configurations keyed by problem title (normalized lowercase)
- */
+// Helper to create common config patterns
+// For C++/Python/Java/JS: function takes only array (uses .size()/.length)
+// For C: function takes array and size
+const arrayToNumber = (fn: string, pyParams?: string[]): ProblemConfig => ({
+    inputFormat: { type: 'n_then_array' },
+    outputFormat: { type: 'single_number' },
+    wrapperHints: {
+        cpp: { functionName: fn, paramTypes: ['vector<int>&'], returnType: 'int' },
+        python: { functionName: fn, paramNames: pyParams || ['arr'] },
+        javascript: { functionName: fn },
+        java: { functionName: fn },
+        c: { functionName: fn, paramTypes: ['int[]', 'int'], returnType: 'int' }
+    }
+});
+
+const arrayVoidModify = (fn: string): ProblemConfig => ({
+    inputFormat: { type: 'n_then_array' },
+    outputFormat: { type: 'array_space_separated' },
+    wrapperHints: {
+        cpp: { functionName: fn, paramTypes: ['vector<int>&'], isVoid: true },
+        python: { functionName: fn, paramNames: ['nums'], isVoid: true },
+        javascript: { functionName: fn, isVoid: true },
+        java: { functionName: fn, isVoid: true },
+        c: { functionName: fn, paramTypes: ['int[]', 'int'], isVoid: true }
+    }
+});
+
+const arrayToArray = (fn: string, pyParams?: string[]): ProblemConfig => ({
+    inputFormat: { type: 'n_then_array' },
+    outputFormat: { type: 'array_space_separated' },
+    wrapperHints: {
+        cpp: { functionName: fn, paramTypes: ['vector<int>&'], returnType: 'vector<int>' },
+        python: { functionName: fn, paramNames: pyParams || ['arr'] },
+        javascript: { functionName: fn },
+        java: { functionName: fn },
+        c: { functionName: fn, paramTypes: ['int[]', 'int'], returnType: 'int*' }
+    }
+});
+
+const arrayKToNumber = (fn: string): ProblemConfig => ({
+    inputFormat: { type: 'n_array_k' },
+    outputFormat: { type: 'single_number' },
+    wrapperHints: {
+        cpp: { functionName: fn, paramTypes: ['vector<int>&', 'int'], returnType: 'int' },
+        python: { functionName: fn, paramNames: ['arr', 'k'] },
+        javascript: { functionName: fn },
+        java: { functionName: fn },
+        c: { functionName: fn, paramTypes: ['int[]', 'int', 'int'], returnType: 'int' }
+    }
+});
+
 export const PROBLEM_CONFIGS: Record<string, ProblemConfig> = {
-    // ========== ARRAYS TOPIC ==========
+    // ========== ARRAYS ==========
     "largest element in array": {
         inputFormat: { type: 'n_then_array' },
         outputFormat: { type: 'single_number' },
         wrapperHints: {
             cpp: { functionName: 'largest', paramTypes: ['int[]', 'int'], returnType: 'int' },
             python: { functionName: 'largest', paramNames: ['arr', 'n'] },
-            java: { functionName: 'largest' },
             javascript: { functionName: 'largest' },
-            c: { functionName: 'largest', paramTypes: ['int[]', 'int'], returnType: 'int' }
+            java: { functionName: 'largest' },
+            c: { functionName: 'largest', returnType: 'int' }
         }
     },
     "second largest element": {
@@ -85,9 +111,9 @@ export const PROBLEM_CONFIGS: Record<string, ProblemConfig> = {
         wrapperHints: {
             cpp: { functionName: 'print2largest', paramTypes: ['int[]', 'int'], returnType: 'int' },
             python: { functionName: 'print2largest', paramNames: ['arr', 'n'] },
-            java: { functionName: 'print2largest' },
             javascript: { functionName: 'print2largest' },
-            c: { functionName: 'print2largest', paramTypes: ['int[]', 'int'], returnType: 'int' }
+            java: { functionName: 'print2largest' },
+            c: { functionName: 'print2largest', returnType: 'int' }
         }
     },
     "check if array is sorted and rotated": {
@@ -96,433 +122,624 @@ export const PROBLEM_CONFIGS: Record<string, ProblemConfig> = {
         wrapperHints: {
             cpp: { functionName: 'check', paramTypes: ['vector<int>&'], returnType: 'bool' },
             python: { functionName: 'check', paramNames: ['nums'] },
-            java: { functionName: 'check' },
             javascript: { functionName: 'check' },
+            java: { functionName: 'check' },
             c: { functionName: 'check', paramTypes: ['int[]', 'int'], returnType: 'bool' }
         }
     },
-    "remove duplicates from sorted array": {
-        inputFormat: { type: 'n_then_array' },
-        outputFormat: { type: 'single_number' },
-        wrapperHints: {
-            cpp: { functionName: 'removeDuplicates', paramTypes: ['vector<int>&'], returnType: 'int' },
-            python: { functionName: 'removeDuplicates', paramNames: ['nums'] },
-            java: { functionName: 'removeDuplicates' },
-            javascript: { functionName: 'removeDuplicates' },
-            c: { functionName: 'removeDuplicates', paramTypes: ['int[]', 'int'], returnType: 'int' }
-        }
-    },
+    "remove duplicates from sorted array": arrayToNumber('removeDuplicates', ['nums']),
     "rotate array left by one place": {
         inputFormat: { type: 'n_then_array' },
         outputFormat: { type: 'array_space_separated' },
         wrapperHints: {
-            cpp: { functionName: 'rotateArray', paramTypes: ['vector<int>&', 'int'], returnType: 'vector<int>' },
+            cpp: { functionName: 'rotateArray', returnType: 'vector<int>' },
             python: { functionName: 'rotateArray', paramNames: ['arr', 'n'] },
-            java: { functionName: 'rotateArray' },
             javascript: { functionName: 'rotateArray' },
-            c: { functionName: 'rotateArray', paramTypes: ['int[]', 'int'], returnType: 'void', isVoid: true }
+            java: { functionName: 'rotateArray' },
+            c: { functionName: 'rotateArray', isVoid: true }
         }
     },
     "rotate array by k places": {
         inputFormat: { type: 'n_array_k' },
         outputFormat: { type: 'array_space_separated' },
         wrapperHints: {
-            cpp: { functionName: 'rightRotate', paramTypes: ['vector<int>&', 'int', 'int'], returnType: 'void', isVoid: true },
-            python: { functionName: 'rightRotate', paramNames: ['arr', 'n', 'k'] },
-            java: { functionName: 'rightRotate' },
-            javascript: { functionName: 'rightRotate' },
-            c: { functionName: 'rightRotate', paramTypes: ['int[]', 'int', 'int'], returnType: 'void', isVoid: true }
+            cpp: { functionName: 'rightRotate', isVoid: true },
+            python: { functionName: 'rightRotate', paramNames: ['arr', 'n', 'k'], isVoid: true },
+            javascript: { functionName: 'rightRotate', isVoid: true },
+            java: { functionName: 'rightRotate', isVoid: true },
+            c: { functionName: 'rightRotate', isVoid: true }
         }
     },
     "move zeros to end": {
         inputFormat: { type: 'n_then_array' },
         outputFormat: { type: 'array_space_separated' },
         wrapperHints: {
-            cpp: { functionName: 'moveZeroes', paramTypes: ['vector<int>&'], returnType: 'void', isVoid: true },
-            python: { functionName: 'moveZeroes', paramNames: ['nums'] },
-            java: { functionName: 'moveZeroes' },
-            javascript: { functionName: 'moveZeroes' },
-            c: { functionName: 'moveZeroes', paramTypes: ['int[]', 'int'], returnType: 'void', isVoid: true }
+            cpp: { functionName: 'moveZeroes', paramTypes: ['vector<int>&'], isVoid: true },
+            python: { functionName: 'moveZeroes', paramNames: ['nums'], isVoid: true },
+            javascript: { functionName: 'moveZeroes', isVoid: true },
+            java: { functionName: 'moveZeroes', isVoid: true },
+            c: { functionName: 'moveZeroes', paramTypes: ['int[]', 'int'], isVoid: true }
         }
     },
     "union of two sorted arrays": {
         inputFormat: { type: 'two_arrays' },
         outputFormat: { type: 'array_space_separated' },
         wrapperHints: {
-            cpp: { functionName: 'findUnion', paramTypes: ['int[]', 'int[]', 'int', 'int'], returnType: 'vector<int>' },
+            cpp: { functionName: 'findUnion', returnType: 'vector<int>' },
             python: { functionName: 'findUnion', paramNames: ['arr1', 'arr2', 'n', 'm'] },
-            java: { functionName: 'findUnion' },
             javascript: { functionName: 'findUnion' },
-            c: { functionName: 'findUnion', paramTypes: ['int[]', 'int[]', 'int', 'int', 'int*'], returnType: 'int*' }
+            java: { functionName: 'findUnion' },
+            c: { functionName: 'findUnion', returnType: 'int*' }
         }
     },
-    "max consecutive ones": {
-        inputFormat: { type: 'n_then_array' },
-        outputFormat: { type: 'single_number' },
-        wrapperHints: {
-            cpp: { functionName: 'findMaxConsecutiveOnes', paramTypes: ['vector<int>&'], returnType: 'int' },
-            python: { functionName: 'findMaxConsecutiveOnes', paramNames: ['nums'] },
-            java: { functionName: 'findMaxConsecutiveOnes' },
-            javascript: { functionName: 'findMaxConsecutiveOnes' },
-            c: { functionName: 'findMaxConsecutiveOnes', paramTypes: ['int[]', 'int'], returnType: 'int' }
-        }
-    },
-    "longest subarray with given sum": {
-        inputFormat: { type: 'n_array_k' },
-        outputFormat: { type: 'single_number' },
-        wrapperHints: {
-            cpp: { functionName: 'longestSubarrayWithSumK', paramTypes: ['vector<int>', 'long long'], returnType: 'int' },
-            python: { functionName: 'longestSubarrayWithSumK', paramNames: ['a', 'k'] },
-            java: { functionName: 'longestSubarrayWithSumK' },
-            javascript: { functionName: 'longestSubarrayWithSumK' },
-            c: { functionName: 'longestSubarrayWithSumK', paramTypes: ['int[]', 'int', 'long long'], returnType: 'int' }
-        }
-    },
-    "single number": {
-        inputFormat: { type: 'n_then_array' },
-        outputFormat: { type: 'single_number' },
-        wrapperHints: {
-            cpp: { functionName: 'singleNumber', paramTypes: ['vector<int>&'], returnType: 'int' },
-            python: { functionName: 'singleNumber', paramNames: ['nums'] },
-            java: { functionName: 'singleNumber' },
-            javascript: { functionName: 'singleNumber' },
-            c: { functionName: 'singleNumber', paramTypes: ['int[]', 'int'], returnType: 'int' }
-        }
-    },
-    "linear search": {
-        inputFormat: { type: 'n_array_k' },
-        outputFormat: { type: 'single_number' },
-        wrapperHints: {
-            cpp: { functionName: 'search', paramTypes: ['vector<int>&', 'int'], returnType: 'int' },
-            python: { functionName: 'search', paramNames: ['arr', 'x'] },
-            java: { functionName: 'search' },
-            javascript: { functionName: 'search' },
-            c: { functionName: 'search', paramTypes: ['int[]', 'int', 'int'], returnType: 'int' }
-        }
-    },
-    "missing number": {
-        inputFormat: { type: 'n_then_array' },
-        outputFormat: { type: 'single_number' },
-        wrapperHints: {
-            cpp: { functionName: 'missingNumber', paramTypes: ['vector<int>&'], returnType: 'int' },
-            python: { functionName: 'missingNumber', paramNames: ['nums'] },
-            java: { functionName: 'missingNumber' },
-            javascript: { functionName: 'missingNumber' },
-            c: { functionName: 'missingNumber', paramTypes: ['int[]', 'int'], returnType: 'int' }
-        }
-    },
+    "max consecutive ones": arrayToNumber('findMaxConsecutiveOnes', ['nums']),
+    "longest subarray with given sum": arrayKToNumber('longestSubarrayWithSumK'),
+    "single number": arrayToNumber('singleNumber', ['nums']),
+    "linear search": arrayKToNumber('search'),
+    "missing number": arrayToNumber('missingNumber', ['nums']),
     "two sum": {
         inputFormat: { type: 'n_array_k' },
         outputFormat: { type: 'array_space_separated' },
         wrapperHints: {
-            cpp: { functionName: 'twoSum', paramTypes: ['vector<int>&', 'int'], returnType: 'vector<int>' },
+            cpp: { functionName: 'twoSum', returnType: 'vector<int>' },
             python: { functionName: 'twoSum', paramNames: ['nums', 'target'] },
-            java: { functionName: 'twoSum' },
             javascript: { functionName: 'twoSum' },
-            c: { functionName: 'twoSum', paramTypes: ['int[]', 'int', 'int', 'int*'], returnType: 'int*' }
+            java: { functionName: 'twoSum' },
+            c: { functionName: 'twoSum', returnType: 'int*' }
         }
     },
     "sort 0s, 1s, and 2s": {
         inputFormat: { type: 'n_then_array' },
         outputFormat: { type: 'array_space_separated' },
         wrapperHints: {
-            cpp: { functionName: 'sortColors', paramTypes: ['vector<int>&'], returnType: 'void', isVoid: true },
-            python: { functionName: 'sortColors', paramNames: ['nums'] },
-            java: { functionName: 'sortColors' },
-            javascript: { functionName: 'sortColors' },
-            c: { functionName: 'sortColors', paramTypes: ['int[]', 'int'], returnType: 'void', isVoid: true }
+            cpp: { functionName: 'sortColors', paramTypes: ['vector<int>&'], isVoid: true },
+            python: { functionName: 'sortColors', paramNames: ['nums'], isVoid: true },
+            javascript: { functionName: 'sortColors', isVoid: true },
+            java: { functionName: 'sortColors', isVoid: true },
+            c: { functionName: 'sortColors', paramTypes: ['int[]', 'int'], isVoid: true }
         }
     },
-    "kadane's algorithm": {
-        inputFormat: { type: 'n_then_array' },
-        outputFormat: { type: 'single_number' },
-        wrapperHints: {
-            cpp: { functionName: 'maxSubArray', paramTypes: ['vector<int>&'], returnType: 'int' },
-            python: { functionName: 'maxSubArray', paramNames: ['nums'] },
-            java: { functionName: 'maxSubArray' },
-            javascript: { functionName: 'maxSubArray' },
-            c: { functionName: 'maxSubArray', paramTypes: ['int[]', 'int'], returnType: 'int' }
-        }
-    },
-    "best time to buy and sell stock": {
-        inputFormat: { type: 'n_then_array' },
-        outputFormat: { type: 'single_number' },
-        wrapperHints: {
-            cpp: { functionName: 'maxProfit', paramTypes: ['vector<int>&'], returnType: 'int' },
-            python: { functionName: 'maxProfit', paramNames: ['prices'] },
-            java: { functionName: 'maxProfit' },
-            javascript: { functionName: 'maxProfit' },
-            c: { functionName: 'maxProfit', paramTypes: ['int[]', 'int'], returnType: 'int' }
-        }
-    },
-    "rearrange array elements by sign": {
-        inputFormat: { type: 'n_then_array' },
-        outputFormat: { type: 'array_space_separated' },
-        wrapperHints: {
-            cpp: { functionName: 'rearrangeArray', paramTypes: ['vector<int>&'], returnType: 'vector<int>' },
-            python: { functionName: 'rearrangeArray', paramNames: ['nums'] },
-            java: { functionName: 'rearrangeArray' },
-            javascript: { functionName: 'rearrangeArray' },
-            c: { functionName: 'rearrangeArray', paramTypes: ['int[]', 'int', 'int[]'], returnType: 'void', isVoid: true }
-        }
-    },
+    "kadane's algorithm": arrayToNumber('maxSubArray', ['nums']),
+    "best time to buy and sell stock": arrayToNumber('maxProfit', ['prices']),
+    "rearrange array elements by sign": arrayToArray('rearrangeArray', ['nums']),
     "3sum": {
         inputFormat: { type: 'n_then_array' },
         outputFormat: { type: 'array_2d_json' },
         wrapperHints: {
-            cpp: { functionName: 'threeSum', paramTypes: ['vector<int>&'], returnType: 'vector<vector<int>>' },
+            cpp: { functionName: 'threeSum', returnType: 'vector<vector<int>>' },
             python: { functionName: 'threeSum', paramNames: ['nums'] },
-            java: { functionName: 'threeSum' },
             javascript: { functionName: 'threeSum' },
-            c: { functionName: 'threeSum', paramTypes: ['int*', 'int', 'int*', 'int**'], returnType: 'int**' }
+            java: { functionName: 'threeSum' },
+            c: { functionName: 'threeSum', returnType: 'int**' }
         }
     },
-    "maximum product subarray": {
-        inputFormat: { type: 'n_then_array' },
-        outputFormat: { type: 'single_number' },
-        wrapperHints: {
-            cpp: { functionName: 'maxProduct', paramTypes: ['vector<int>&'], returnType: 'int' },
-            python: { functionName: 'maxProduct', paramNames: ['nums'] },
-            java: { functionName: 'maxProduct' },
-            javascript: { functionName: 'maxProduct' },
-            c: { functionName: 'maxProduct', paramTypes: ['int[]', 'int'], returnType: 'int' }
-        }
-    },
-    "majority element": {
-        inputFormat: { type: 'n_then_array' },
-        outputFormat: { type: 'single_number' },
-        wrapperHints: {
-            cpp: { functionName: 'majorityElement', paramTypes: ['vector<int>&'], returnType: 'int' },
-            python: { functionName: 'majorityElement', paramNames: ['nums'] },
-            java: { functionName: 'majorityElement' },
-            javascript: { functionName: 'majorityElement' },
-            c: { functionName: 'majorityElement', paramTypes: ['int*', 'int'], returnType: 'int' }
-        }
-    },
-    "number of subarrays with sum k": {
-        inputFormat: { type: 'n_array_k' },
-        outputFormat: { type: 'single_number' },
-        wrapperHints: {
-            cpp: { functionName: 'subarraySum', paramTypes: ['vector<int>&', 'int'], returnType: 'int' },
-            python: { functionName: 'subarraySum', paramNames: ['nums', 'k'] },
-            java: { functionName: 'subarraySum' },
-            javascript: { functionName: 'subarraySum' },
-            c: { functionName: 'subarraySum', paramTypes: ['int*', 'int', 'int'], returnType: 'int' }
-        }
-    },
-    "leaders in an array": {
-        inputFormat: { type: 'n_then_array' },
-        outputFormat: { type: 'array_space_separated' },
-        wrapperHints: {
-            cpp: { functionName: 'leaders', paramTypes: ['int[]', 'int'], returnType: 'vector<int>' },
-            python: { functionName: 'leaders', paramNames: ['a', 'n'] },
-            java: { functionName: 'leaders' },
-            javascript: { functionName: 'leaders' },
-            c: { functionName: 'leaders', paramTypes: ['int[]', 'int', 'int*'], returnType: 'int*' }
-        }
-    },
-    "longest consecutive subsequence": {
-        inputFormat: { type: 'n_then_array' },
-        outputFormat: { type: 'single_number' },
-        wrapperHints: {
-            cpp: { functionName: 'longestConsecutive', paramTypes: ['vector<int>&'], returnType: 'int' },
-            python: { functionName: 'longestConsecutive', paramNames: ['nums'] },
-            java: { functionName: 'longestConsecutive' },
-            javascript: { functionName: 'longestConsecutive' },
-            c: { functionName: 'longestConsecutive', paramTypes: ['int*', 'int'], returnType: 'int' }
-        }
-    },
+    "maximum product subarray": arrayToNumber('maxProduct', ['nums']),
+    "majority element": arrayToNumber('majorityElement', ['nums']),
+    "number of subarrays with sum k": arrayKToNumber('subarraySum'),
+    "leaders in an array": arrayToArray('leaders', ['a', 'n']),
+    "longest consecutive subsequence": arrayToNumber('longestConsecutive', ['nums']),
     "set matrix zeroes": {
         inputFormat: { type: 'n_m_2d_matrix' },
         outputFormat: { type: 'array_2d_rows' },
         wrapperHints: {
-            cpp: { functionName: 'setZeroes', paramTypes: ['vector<vector<int>>&'], returnType: 'void', isVoid: true },
-            python: { functionName: 'setZeroes', paramNames: ['matrix'] },
-            java: { functionName: 'setZeroes' },
-            javascript: { functionName: 'setZeroes' },
-            c: { functionName: 'setZeroes', paramTypes: ['int**', 'int', 'int*'], returnType: 'void', isVoid: true }
+            cpp: { functionName: 'setZeroes', paramTypes: ['vector<vector<int>>&'], isVoid: true },
+            python: { functionName: 'setZeroes', paramNames: ['matrix'], isVoid: true },
+            javascript: { functionName: 'setZeroes', isVoid: true },
+            java: { functionName: 'setZeroes', isVoid: true },
+            c: { functionName: 'setZeroes', paramTypes: ['int**', 'int', 'int'], isVoid: true }
         }
     },
     "rotate matrix": {
         inputFormat: { type: 'n_m_2d_matrix' },
         outputFormat: { type: 'array_2d_rows' },
         wrapperHints: {
-            cpp: { functionName: 'rotate', paramTypes: ['vector<vector<int>>&'], returnType: 'void', isVoid: true },
-            python: { functionName: 'rotate', paramNames: ['matrix'] },
-            java: { functionName: 'rotate' },
-            javascript: { functionName: 'rotate' },
-            c: { functionName: 'rotate', paramTypes: ['int**', 'int', 'int*'], returnType: 'void', isVoid: true }
+            cpp: { functionName: 'rotate', paramTypes: ['vector<vector<int>>&'], isVoid: true },
+            python: { functionName: 'rotate', paramNames: ['matrix'], isVoid: true },
+            javascript: { functionName: 'rotate', isVoid: true },
+            java: { functionName: 'rotate', isVoid: true },
+            c: { functionName: 'rotate', paramTypes: ['int**', 'int'], isVoid: true }
         }
     },
     "spiral matrix": {
         inputFormat: { type: 'n_m_2d_matrix' },
         outputFormat: { type: 'array_space_separated' },
         wrapperHints: {
-            cpp: { functionName: 'spiralOrder', paramTypes: ['vector<vector<int>>&'], returnType: 'vector<int>' },
+            cpp: { functionName: 'spiralOrder', returnType: 'vector<int>' },
             python: { functionName: 'spiralOrder', paramNames: ['matrix'] },
-            java: { functionName: 'spiralOrder' },
             javascript: { functionName: 'spiralOrder' },
-            c: { functionName: 'spiralOrder', paramTypes: ['int**', 'int', 'int*', 'int*'], returnType: 'int*' }
+            java: { functionName: 'spiralOrder' },
+            c: { functionName: 'spiralOrder', returnType: 'int*' }
         }
     },
     "pascal's triangle": {
         inputFormat: { type: 'single_number' },
         outputFormat: { type: 'array_2d_json' },
         wrapperHints: {
-            cpp: { functionName: 'generate', paramTypes: ['int'], returnType: 'vector<vector<int>>' },
+            cpp: { functionName: 'generate', returnType: 'vector<vector<int>>' },
             python: { functionName: 'generate', paramNames: ['numRows'] },
-            java: { functionName: 'generate' },
             javascript: { functionName: 'generate' },
-            c: { functionName: 'generate', paramTypes: ['int', 'int*', 'int**'], returnType: 'int**' }
+            java: { functionName: 'generate' },
+            c: { functionName: 'generate', returnType: 'int**' }
         }
     },
-    "majority element ii": {
-        inputFormat: { type: 'n_then_array' },
-        outputFormat: { type: 'array_space_separated' },
-        wrapperHints: {
-            cpp: { functionName: 'majorityElement', paramTypes: ['vector<int>&'], returnType: 'vector<int>' },
-            python: { functionName: 'majorityElement', paramNames: ['nums'] },
-            java: { functionName: 'majorityElement' },
-            javascript: { functionName: 'majorityElement' },
-            c: { functionName: 'majorityElement', paramTypes: ['int*', 'int', 'int*'], returnType: 'int*' }
-        }
-    },
+    "majority element ii": arrayToArray('majorityElement', ['nums']),
     "4sum": {
         inputFormat: { type: 'n_m_array_target' },
         outputFormat: { type: 'array_2d_json' },
         wrapperHints: {
-            cpp: { functionName: 'fourSum', paramTypes: ['vector<int>&', 'int'], returnType: 'vector<vector<int>>' },
+            cpp: { functionName: 'fourSum', returnType: 'vector<vector<int>>' },
             python: { functionName: 'fourSum', paramNames: ['nums', 'target'] },
-            java: { functionName: 'fourSum' },
             javascript: { functionName: 'fourSum' },
-            c: { functionName: 'fourSum', paramTypes: ['int*', 'int', 'int', 'int*', 'int**'], returnType: 'int**' }
+            java: { functionName: 'fourSum' },
+            c: { functionName: 'fourSum', returnType: 'int**' }
         }
     },
     "largest subarray with 0 sum": {
         inputFormat: { type: 'n_then_array' },
         outputFormat: { type: 'single_number' },
         wrapperHints: {
-            cpp: { functionName: 'maxLen', paramTypes: ['vector<int>&', 'int'], returnType: 'int' },
+            cpp: { functionName: 'maxLen', returnType: 'int' },
             python: { functionName: 'maxLen', paramNames: ['arr', 'n'] },
-            java: { functionName: 'maxLen' },
             javascript: { functionName: 'maxLen' },
-            c: { functionName: 'maxLen', paramTypes: ['int*', 'int'], returnType: 'int' }
+            java: { functionName: 'maxLen' },
+            c: { functionName: 'maxLen', returnType: 'int' }
         }
     },
     "subarrays with xor k": {
         inputFormat: { type: 'n_m_array_target' },
         outputFormat: { type: 'single_number' },
         wrapperHints: {
-            cpp: { functionName: 'solve', paramTypes: ['vector<int>&', 'int'], returnType: 'int' },
+            cpp: { functionName: 'solve', returnType: 'int' },
             python: { functionName: 'solve', paramNames: ['a', 'b'] },
-            java: { functionName: 'solve' },
             javascript: { functionName: 'solve' },
-            c: { functionName: 'solve', paramTypes: ['int*', 'int', 'int'], returnType: 'int' }
+            java: { functionName: 'solve' },
+            c: { functionName: 'solve', returnType: 'int' }
         }
     },
-    "merge overlapping intervals": {
-        inputFormat: { type: 'n_then_array' },  // n intervals on one line as pairs
-        outputFormat: { type: 'array_space_separated' },
-        wrapperHints: {
-            cpp: { functionName: 'merge', paramTypes: ['vector<vector<int>>&'], returnType: 'vector<vector<int>>' },
-            python: { functionName: 'merge', paramNames: ['intervals'] },
-            java: { functionName: 'merge' },
-            javascript: { functionName: 'merge' },
-            c: { functionName: 'merge', paramTypes: ['int**', 'int', 'int*', 'int*', 'int**'], returnType: 'int**' }
-        }
-    },
+    "merge overlapping intervals": arrayToArray('merge', ['intervals']),
     "merge sorted array (in-place)": {
-        inputFormat: { type: 'two_numbers_array' },  // "m n\nnums1\nnums2"
+        inputFormat: { type: 'two_numbers_array' },
         outputFormat: { type: 'array_space_separated' },
         wrapperHints: {
-            cpp: { functionName: 'merge', paramTypes: ['vector<int>&', 'int', 'vector<int>&', 'int'], returnType: 'void', isVoid: true },
-            python: { functionName: 'merge', paramNames: ['nums1', 'm', 'nums2', 'n'] },
-            java: { functionName: 'merge' },
-            javascript: { functionName: 'merge' },
-            c: { functionName: 'merge', paramTypes: ['int*', 'int', 'int*', 'int'], returnType: 'void', isVoid: true }
+            cpp: { functionName: 'merge', isVoid: true },
+            python: { functionName: 'merge', paramNames: ['nums1', 'm', 'nums2', 'n'], isVoid: true },
+            javascript: { functionName: 'merge', isVoid: true },
+            java: { functionName: 'merge', isVoid: true },
+            c: { functionName: 'merge', isVoid: true }
         }
     },
-    "repeating and missing numbers": {
-        inputFormat: { type: 'n_then_array' },
-        outputFormat: { type: 'array_space_separated' },
-        wrapperHints: {
-            cpp: { functionName: 'findMissingRepeating', paramTypes: ['vector<int>', 'int'], returnType: 'vector<int>' },
-            python: { functionName: 'findMissingRepeating', paramNames: ['arr', 'n'] },
-            java: { functionName: 'findMissingRepeating' },
-            javascript: { functionName: 'findMissingRepeating' },
-            c: { functionName: 'findMissingRepeating', paramTypes: ['int*', 'int'], returnType: 'int*' }
-        }
-    },
-    "next permutation": {
-        inputFormat: { type: 'n_then_array' },
-        outputFormat: { type: 'array_space_separated' },
-        wrapperHints: {
-            cpp: { functionName: 'nextPermutation', paramTypes: ['vector<int>&'], returnType: 'void', isVoid: true },
-            python: { functionName: 'nextPermutation', paramNames: ['nums'] },
-            java: { functionName: 'nextPermutation' },
-            javascript: { functionName: 'nextPermutation' },
-            c: { functionName: 'nextPermutation', paramTypes: ['int*', 'int'], returnType: 'void', isVoid: true }
-        }
-    },
+    "repeating and missing numbers": arrayToArray('findMissingRepeating', ['arr', 'n']),
+    "next permutation": arrayVoidModify('nextPermutation'),
     "count inversions": {
         inputFormat: { type: 'n_then_array' },
         outputFormat: { type: 'single_number' },
         wrapperHints: {
-            cpp: { functionName: 'numberOfInversions', paramTypes: ['vector<int>&', 'int'], returnType: 'long long' },
+            cpp: { functionName: 'numberOfInversions', returnType: 'long long' },
             python: { functionName: 'numberOfInversions', paramNames: ['arr', 'n'] },
-            java: { functionName: 'numberOfInversions' },
             javascript: { functionName: 'numberOfInversions' },
-            c: { functionName: 'numberOfInversions', paramTypes: ['int*', 'int'], returnType: 'long long' }
+            java: { functionName: 'numberOfInversions' },
+            c: { functionName: 'numberOfInversions', returnType: 'long long' }
         }
     },
-    "reverse pairs": {
+    "reverse pairs": arrayToNumber('reversePairs', ['nums']),
+
+    // ========== BINARY SEARCH ==========
+    "binary search": arrayKToNumber('search'),
+    "lower bound": arrayKToNumber('lowerBound'),
+    "upper bound": arrayKToNumber('upperBound'),
+    "search insert position": arrayKToNumber('searchInsert'),
+    "check if array is sorted": {
         inputFormat: { type: 'n_then_array' },
+        outputFormat: { type: 'boolean' },
+        wrapperHints: {
+            cpp: { functionName: 'isSorted', returnType: 'bool' },
+            python: { functionName: 'isSorted', paramNames: ['arr'] },
+            javascript: { functionName: 'isSorted' },
+            java: { functionName: 'isSorted' },
+            c: { functionName: 'isSorted', returnType: 'bool' }
+        }
+    },
+    "first and last position of element": {
+        inputFormat: { type: 'n_array_k' },
+        outputFormat: { type: 'array_space_separated' },
+        wrapperHints: {
+            cpp: { functionName: 'searchRange', returnType: 'vector<int>' },
+            python: { functionName: 'searchRange', paramNames: ['nums', 'target'] },
+            javascript: { functionName: 'searchRange' },
+            java: { functionName: 'searchRange' },
+            c: { functionName: 'searchRange', returnType: 'int*' }
+        }
+    },
+    "number of occurrences": arrayKToNumber('count'),
+    "find peak element": arrayToNumber('findPeakElement', ['nums']),
+    "search in rotated sorted array": arrayKToNumber('search'),
+    "search in rotated sorted array with duplicates": {
+        inputFormat: { type: 'n_array_k' },
+        outputFormat: { type: 'boolean' },
+        wrapperHints: {
+            cpp: { functionName: 'search', returnType: 'bool' },
+            python: { functionName: 'search', paramNames: ['nums', 'target'] },
+            javascript: { functionName: 'search' },
+            java: { functionName: 'search' },
+            c: { functionName: 'search', returnType: 'bool' }
+        }
+    },
+    "find minimum in rotated sorted array": arrayToNumber('findMin', ['nums']),
+    "find single element in sorted array": arrayToNumber('singleNonDuplicate', ['nums']),
+    "find how many times array is rotated": arrayToNumber('findKRotation', ['arr']),
+    "square root of number": {
+        inputFormat: { type: 'single_number' },
         outputFormat: { type: 'single_number' },
         wrapperHints: {
-            cpp: { functionName: 'reversePairs', paramTypes: ['vector<int>&'], returnType: 'int' },
-            python: { functionName: 'reversePairs', paramNames: ['nums'] },
-            java: { functionName: 'reversePairs' },
-            javascript: { functionName: 'reversePairs' },
-            c: { functionName: 'reversePairs', paramTypes: ['int*', 'int'], returnType: 'int' }
+            cpp: { functionName: 'mySqrt', returnType: 'int' },
+            python: { functionName: 'mySqrt', paramNames: ['x'] },
+            javascript: { functionName: 'mySqrt' },
+            java: { functionName: 'mySqrt' },
+            c: { functionName: 'mySqrt', returnType: 'int' }
+        }
+    },
+    "nth root of integer": {
+        inputFormat: { type: 'n_array_k' },
+        outputFormat: { type: 'single_number' },
+        wrapperHints: {
+            cpp: { functionName: 'NthRoot', returnType: 'int' },
+            python: { functionName: 'NthRoot', paramNames: ['n', 'm'] },
+            javascript: { functionName: 'NthRoot' },
+            java: { functionName: 'NthRoot' },
+            c: { functionName: 'NthRoot', returnType: 'int' }
+        }
+    },
+    "koko eating bananas": arrayKToNumber('minEatingSpeed'),
+    "minimum days to make bouquets": arrayKToNumber('minDays'),
+    "find smallest divisor": arrayKToNumber('smallestDivisor'),
+    "capacity to ship packages": arrayKToNumber('shipWithinDays'),
+    "aggressive cows problem": arrayKToNumber('aggressiveCows'),
+    "book allocation": arrayKToNumber('findPages'),
+    "split array largest sum": arrayKToNumber('splitArray'),
+    "kth missing number": arrayKToNumber('findKthPositive'),
+    "median of two sorted arrays": {
+        inputFormat: { type: 'two_arrays' },
+        outputFormat: { type: 'single_number' },
+        wrapperHints: {
+            cpp: { functionName: 'findMedianSortedArrays', returnType: 'double' },
+            python: { functionName: 'findMedianSortedArrays', paramNames: ['nums1', 'nums2'] },
+            javascript: { functionName: 'findMedianSortedArrays' },
+            java: { functionName: 'findMedianSortedArrays' },
+            c: { functionName: 'findMedianSortedArrays', returnType: 'double' }
         }
     },
 
-    // ========== TRIES TOPIC ==========
+    // ========== LINKED LIST (basic structure) ==========
+    "reverse linked list": arrayToArray('reverseList', ['head']),
+    "middle of linked list": arrayToNumber('middleNode', ['head']),
+    "detect cycle in linked list": {
+        inputFormat: { type: 'n_then_array' },
+        outputFormat: { type: 'boolean' },
+        wrapperHints: {
+            cpp: { functionName: 'hasCycle', returnType: 'bool' },
+            python: { functionName: 'hasCycle', paramNames: ['head'] },
+            javascript: { functionName: 'hasCycle' },
+            java: { functionName: 'hasCycle' },
+            c: { functionName: 'hasCycle', returnType: 'bool' }
+        }
+    },
+    "merge two sorted lists": {
+        inputFormat: { type: 'two_arrays' },
+        outputFormat: { type: 'array_space_separated' },
+        wrapperHints: {
+            cpp: { functionName: 'mergeTwoLists', returnType: 'ListNode*' },
+            python: { functionName: 'mergeTwoLists', paramNames: ['list1', 'list2'] },
+            javascript: { functionName: 'mergeTwoLists' },
+            java: { functionName: 'mergeTwoLists' },
+            c: { functionName: 'mergeTwoLists', returnType: 'ListNode*' }
+        }
+    },
+
+    // ========== BIT MANIPULATION ==========
+    "bit manipulation fundamentals": arrayToNumber('bitManipulation', ['n']),
+    "check if kth bit is set": {
+        inputFormat: { type: 'n_array_k' },
+        outputFormat: { type: 'boolean' },
+        wrapperHints: {
+            cpp: { functionName: 'checkKthBit', returnType: 'bool' },
+            python: { functionName: 'checkKthBit', paramNames: ['n', 'k'] },
+            javascript: { functionName: 'checkKthBit' },
+            java: { functionName: 'checkKthBit' },
+            c: { functionName: 'checkKthBit', returnType: 'bool' }
+        }
+    },
+    "check for odd or even": {
+        inputFormat: { type: 'single_number' },
+        outputFormat: { type: 'string' },
+        wrapperHints: {
+            cpp: { functionName: 'oddOrEven', returnType: 'string' },
+            python: { functionName: 'oddOrEven', paramNames: ['n'] },
+            javascript: { functionName: 'oddOrEven' },
+            java: { functionName: 'oddOrEven' },
+            c: { functionName: 'oddOrEven', returnType: 'char*' }
+        }
+    },
+    "check if number is power of 2": {
+        inputFormat: { type: 'single_number' },
+        outputFormat: { type: 'boolean' },
+        wrapperHints: {
+            cpp: { functionName: 'isPowerOfTwo', returnType: 'bool' },
+            python: { functionName: 'isPowerOfTwo', paramNames: ['n'] },
+            javascript: { functionName: 'isPowerOfTwo' },
+            java: { functionName: 'isPowerOfTwo' },
+            c: { functionName: 'isPowerOfTwo', returnType: 'bool' }
+        }
+    },
+    "swap two numbers": {
+        inputFormat: { type: 'n_array_k' },
+        outputFormat: { type: 'array_space_separated' },
+        wrapperHints: {
+            cpp: { functionName: 'swapNumbers', returnType: 'vector<int>' },
+            python: { functionName: 'swapNumbers', paramNames: ['a', 'b'] },
+            javascript: { functionName: 'swapNumbers' },
+            java: { functionName: 'swapNumbers' },
+            c: { functionName: 'swapNumbers', returnType: 'void', isVoid: true }
+        }
+    },
+    "count set bits from 1 to n": {
+        inputFormat: { type: 'single_number' },
+        outputFormat: { type: 'single_number' },
+        wrapperHints: {
+            cpp: { functionName: 'countSetBits', returnType: 'int' },
+            python: { functionName: 'countSetBits', paramNames: ['n'] },
+            javascript: { functionName: 'countSetBits' },
+            java: { functionName: 'countSetBits' },
+            c: { functionName: 'countSetBits', returnType: 'int' }
+        }
+    },
+    "sieve of eratosthenes": {
+        inputFormat: { type: 'single_number' },
+        outputFormat: { type: 'array_space_separated' },
+        wrapperHints: {
+            cpp: { functionName: 'sieveOfEratosthenes', returnType: 'vector<int>' },
+            python: { functionName: 'sieveOfEratosthenes', paramNames: ['n'] },
+            javascript: { functionName: 'sieveOfEratosthenes' },
+            java: { functionName: 'sieveOfEratosthenes' },
+            c: { functionName: 'sieveOfEratosthenes', returnType: 'int*' }
+        }
+    },
+
+    // ========== RECURSION ==========
+    "n-th fibonacci number": {
+        inputFormat: { type: 'single_number' },
+        outputFormat: { type: 'single_number' },
+        wrapperHints: {
+            cpp: { functionName: 'fib', returnType: 'int' },
+            python: { functionName: 'fib', paramNames: ['n'] },
+            javascript: { functionName: 'fib' },
+            java: { functionName: 'fib' },
+            c: { functionName: 'fib', returnType: 'int' }
+        }
+    },
+    "climbing stairs": {
+        inputFormat: { type: 'single_number' },
+        outputFormat: { type: 'single_number' },
+        wrapperHints: {
+            cpp: { functionName: 'climbStairs', returnType: 'int' },
+            python: { functionName: 'climbStairs', paramNames: ['n'] },
+            javascript: { functionName: 'climbStairs' },
+            java: { functionName: 'climbStairs' },
+            c: { functionName: 'climbStairs', returnType: 'int' }
+        }
+    },
+    "house robber": arrayToNumber('rob', ['nums']),
+    "house robber ii": arrayToNumber('rob', ['nums']),
+    "unique paths": {
+        inputFormat: { type: 'n_array_k' },
+        outputFormat: { type: 'single_number' },
+        wrapperHints: {
+            cpp: { functionName: 'uniquePaths', returnType: 'int' },
+            python: { functionName: 'uniquePaths', paramNames: ['m', 'n'] },
+            javascript: { functionName: 'uniquePaths' },
+            java: { functionName: 'uniquePaths' },
+            c: { functionName: 'uniquePaths', returnType: 'int' }
+        }
+    },
+    "coin change": arrayKToNumber('coinChange'),
+    "0/1 knapsack": {
+        inputFormat: { type: 'n_array_k' },
+        outputFormat: { type: 'single_number' },
+        wrapperHints: {
+            cpp: { functionName: 'knapsack', returnType: 'int' },
+            python: { functionName: 'knapsack', paramNames: ['W', 'wt', 'val', 'n'] },
+            javascript: { functionName: 'knapsack' },
+            java: { functionName: 'knapsack' },
+            c: { functionName: 'knapsack', returnType: 'int' }
+        }
+    },
+
+    // ========== STACK AND QUEUES ==========
+    "implement stack using array": {
+        inputFormat: { type: 'class_transaction' },
+        outputFormat: { type: 'class_results' },
+        wrapperHints: {
+            cpp: { functionName: 'Stack', returnType: 'class' },
+            python: { functionName: 'Stack', paramNames: [] },
+            javascript: { functionName: 'Stack' },
+            java: { functionName: 'Stack', className: 'Stack' },
+            c: { functionName: 'createStack', returnType: 'Stack*' }
+        }
+    },
+    "valid parenthesis": {
+        inputFormat: { type: 'array_only' },
+        outputFormat: { type: 'boolean' },
+        wrapperHints: {
+            cpp: { functionName: 'isValid', returnType: 'bool' },
+            python: { functionName: 'isValid', paramNames: ['s'] },
+            javascript: { functionName: 'isValid' },
+            java: { functionName: 'isValid' },
+            c: { functionName: 'isValid', returnType: 'bool' }
+        }
+    },
+    "next greater element": arrayToArray('nextGreaterElement', ['nums']),
+    "trapping rainwater": arrayToNumber('trap', ['height']),
+    "largest rectangle in histogram": arrayToNumber('largestRectangleArea', ['heights']),
+
+    // ========== GREEDY ==========
+    "assign cookies": {
+        inputFormat: { type: 'two_arrays' },
+        outputFormat: { type: 'single_number' },
+        wrapperHints: {
+            cpp: { functionName: 'findContentChildren', returnType: 'int' },
+            python: { functionName: 'findContentChildren', paramNames: ['g', 's'] },
+            javascript: { functionName: 'findContentChildren' },
+            java: { functionName: 'findContentChildren' },
+            c: { functionName: 'findContentChildren', returnType: 'int' }
+        }
+    },
+    "fractional knapsack": {
+        inputFormat: { type: 'n_array_k' },
+        outputFormat: { type: 'single_number' },
+        wrapperHints: {
+            cpp: { functionName: 'fractionalKnapsack', returnType: 'double' },
+            python: { functionName: 'fractionalKnapsack', paramNames: ['W', 'arr', 'n'] },
+            javascript: { functionName: 'fractionalKnapsack' },
+            java: { functionName: 'fractionalKnapsack' },
+            c: { functionName: 'fractionalKnapsack', returnType: 'double' }
+        }
+    },
+    "jump game": {
+        inputFormat: { type: 'n_then_array' },
+        outputFormat: { type: 'boolean' },
+        wrapperHints: {
+            cpp: { functionName: 'canJump', returnType: 'bool' },
+            python: { functionName: 'canJump', paramNames: ['nums'] },
+            javascript: { functionName: 'canJump' },
+            java: { functionName: 'canJump' },
+            c: { functionName: 'canJump', returnType: 'bool' }
+        }
+    },
+    "jump game ii": arrayToNumber('jump', ['nums']),
+
+    // ========== STRINGS ==========
+    "reverse string": {
+        inputFormat: { type: 'array_only' },
+        outputFormat: { type: 'string' },
+        wrapperHints: {
+            cpp: { functionName: 'reverseString', isVoid: true },
+            python: { functionName: 'reverseString', paramNames: ['s'], isVoid: true },
+            javascript: { functionName: 'reverseString', isVoid: true },
+            java: { functionName: 'reverseString', isVoid: true },
+            c: { functionName: 'reverseString', isVoid: true }
+        }
+    },
+    "valid palindrome": {
+        inputFormat: { type: 'array_only' },
+        outputFormat: { type: 'boolean' },
+        wrapperHints: {
+            cpp: { functionName: 'isPalindrome', returnType: 'bool' },
+            python: { functionName: 'isPalindrome', paramNames: ['s'] },
+            javascript: { functionName: 'isPalindrome' },
+            java: { functionName: 'isPalindrome' },
+            c: { functionName: 'isPalindrome', returnType: 'bool' }
+        }
+    },
+    "longest palindromic substring": {
+        inputFormat: { type: 'array_only' },
+        outputFormat: { type: 'string' },
+        wrapperHints: {
+            cpp: { functionName: 'longestPalindrome', returnType: 'string' },
+            python: { functionName: 'longestPalindrome', paramNames: ['s'] },
+            javascript: { functionName: 'longestPalindrome' },
+            java: { functionName: 'longestPalindrome' },
+            c: { functionName: 'longestPalindrome', returnType: 'char*' }
+        }
+    },
+
+    // ========== TRIES ==========
     "implement trie (prefix tree)": {
         inputFormat: { type: 'class_transaction' },
         outputFormat: { type: 'class_results' },
         wrapperHints: {
-            cpp: { functionName: 'Trie', paramTypes: [], returnType: 'class' },
+            cpp: { functionName: 'Trie', returnType: 'class' },
             python: { functionName: 'Trie', paramNames: [] },
-            java: { functionName: 'Trie', className: 'Trie' },
             javascript: { functionName: 'Trie' },
-            c: { functionName: 'trieCreate', paramTypes: [], returnType: 'Trie*' }
+            java: { functionName: 'Trie', className: 'Trie' },
+            c: { functionName: 'trieCreate', returnType: 'Trie*' }
         }
     },
     "implement trie ii (prefix tree)": {
         inputFormat: { type: 'class_transaction' },
         outputFormat: { type: 'class_results' },
         wrapperHints: {
-            cpp: { functionName: 'Trie', paramTypes: [], returnType: 'class' },
+            cpp: { functionName: 'Trie', returnType: 'class' },
             python: { functionName: 'Trie', paramNames: [] },
-            java: { functionName: 'Trie', className: 'Trie' },
             javascript: { functionName: 'Trie' },
-            c: { functionName: 'trieCreate', paramTypes: [], returnType: 'Trie*' }
+            java: { functionName: 'Trie', className: 'Trie' },
+            c: { functionName: 'trieCreate', returnType: 'Trie*' }
+        }
+    },
+
+    // ========== GRAPHS ==========
+    "count the number of provinces": arrayToNumber('findCircleNum', ['isConnected']),
+    "rotten oranges": {
+        inputFormat: { type: 'n_m_2d_matrix' },
+        outputFormat: { type: 'single_number' },
+        wrapperHints: {
+            cpp: { functionName: 'orangesRotting', returnType: 'int' },
+            python: { functionName: 'orangesRotting', paramNames: ['grid'] },
+            javascript: { functionName: 'orangesRotting' },
+            java: { functionName: 'orangesRotting' },
+            c: { functionName: 'orangesRotting', returnType: 'int' }
+        }
+    },
+    "flood-fill algorithm": {
+        inputFormat: { type: 'n_m_2d_matrix' },
+        outputFormat: { type: 'array_2d_rows' },
+        wrapperHints: {
+            cpp: { functionName: 'floodFill', returnType: 'vector<vector<int>>' },
+            python: { functionName: 'floodFill', paramNames: ['image', 'sr', 'sc', 'color'] },
+            javascript: { functionName: 'floodFill' },
+            java: { functionName: 'floodFill' },
+            c: { functionName: 'floodFill', returnType: 'int**' }
+        }
+    },
+    "detect cycle in undirected graph": {
+        inputFormat: { type: 'n_m_2d_matrix' },
+        outputFormat: { type: 'boolean' },
+        wrapperHints: {
+            cpp: { functionName: 'isCycle', returnType: 'bool' },
+            python: { functionName: 'isCycle', paramNames: ['V', 'adj'] },
+            javascript: { functionName: 'isCycle' },
+            java: { functionName: 'isCycle' },
+            c: { functionName: 'isCycle', returnType: 'bool' }
+        }
+    },
+    "detect cycle in directed graph": {
+        inputFormat: { type: 'n_m_2d_matrix' },
+        outputFormat: { type: 'boolean' },
+        wrapperHints: {
+            cpp: { functionName: 'isCyclic', returnType: 'bool' },
+            python: { functionName: 'isCyclic', paramNames: ['V', 'adj'] },
+            javascript: { functionName: 'isCyclic' },
+            java: { functionName: 'isCyclic' },
+            c: { functionName: 'isCyclic', returnType: 'bool' }
+        }
+    },
+    "topological sorting": arrayToArray('topoSort', ['V', 'adj']),
+    "number of islands": {
+        inputFormat: { type: 'n_m_2d_matrix' },
+        outputFormat: { type: 'single_number' },
+        wrapperHints: {
+            cpp: { functionName: 'numIslands', returnType: 'int' },
+            python: { functionName: 'numIslands', paramNames: ['grid'] },
+            javascript: { functionName: 'numIslands' },
+            java: { functionName: 'numIslands' },
+            c: { functionName: 'numIslands', returnType: 'int' }
         }
     }
 };
 
-/**
- * Get problem config by title (case-insensitive lookup)
- */
 export function getProblemConfig(title: string): ProblemConfig | undefined {
     const normalizedTitle = title.toLowerCase().trim();
     return PROBLEM_CONFIGS[normalizedTitle];
 }
 
-/**
- * Normalize a problem title for lookup
- */
 export function normalizeTitle(title: string): string {
     return title.toLowerCase().trim();
 }
