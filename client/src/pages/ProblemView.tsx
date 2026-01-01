@@ -115,7 +115,29 @@ function CodeSubmissionSignature({ format, language }: { format: string; languag
   const parseSubmissionFormat = (text: string, selectedLang: string): { lang: string; code: string } | null => {
     if (!text) return null;
 
-    // Find language sections - they're formatted as "LANG:" or "LANG: " at the start of a line
+    // Language name mappings for markdown headers
+    const langNames: Record<string, string[]> = {
+      'cpp': ['CPP', 'C++', 'cpp'],
+      'c': ['C'],
+      'python': ['PYTHON', 'Python', 'python'],
+      'java': ['JAVA', 'Java', 'java'],
+      'javascript': ['JAVASCRIPT', 'JavaScript', 'JS', 'javascript', 'js']
+    };
+
+    const langNamesForSelected = langNames[selectedLang] || [selectedLang.toUpperCase()];
+
+    // Try to parse markdown format with code blocks first
+    // Format: **CPP** followed by ```cpp ... ```
+    for (const langName of langNamesForSelected) {
+      // Pattern 1: **CPP** followed by code block
+      const markdownHeaderRegex = new RegExp(`\\*\\*${langName}\\*\\*[\\s\\S]*?\`\`\`(?:${selectedLang}|cpp|c|python|java|javascript)?\\n([\\s\\S]*?)\`\`\``, 'i');
+      const markdownMatch = text.match(markdownHeaderRegex);
+      if (markdownMatch && markdownMatch[1]) {
+        return { lang: selectedLang.toUpperCase(), code: markdownMatch[1].trim() };
+      }
+    }
+
+    // Fallback: Try old format "LANG: code" on a single line or simple section
     const langPatterns: Record<string, string[]> = {
       'cpp': ['CPP:', 'C++:'],
       'c': ['C:'],
@@ -396,7 +418,33 @@ export default function ProblemView() {
 
     const text = problem.submissionFormat;
 
-    // Find language sections - they're formatted as "LANG:" or "LANG: " at the start of a line
+    // Language name mappings for markdown headers
+    const langNames: Record<string, string[]> = {
+      'cpp': ['CPP', 'C++', 'cpp'],
+      'c': ['C'],
+      'python': ['PYTHON', 'Python', 'python'],
+      'java': ['JAVA', 'Java', 'java'],
+      'javascript': ['JAVASCRIPT', 'JavaScript', 'JS', 'javascript', 'js']
+    };
+
+    const langNamesForSelected = langNames[lang] || [lang.toUpperCase()];
+
+    // Try to parse markdown format with code blocks first
+    // Format: **CPP** followed by ```cpp ... ```
+    for (const langName of langNamesForSelected) {
+      const markdownHeaderRegex = new RegExp(`\\*\\*${langName}\\*\\*[\\s\\S]*?\`\`\`(?:${lang}|cpp|c|python|java|javascript)?\\n([\\s\\S]*?)\`\`\``, 'i');
+      const markdownMatch = text.match(markdownHeaderRegex);
+      if (markdownMatch && markdownMatch[1]) {
+        const code = markdownMatch[1].trim();
+        // For C++, add common includes if missing
+        if (lang === 'cpp' && !code.includes('#include')) {
+          return `#include <iostream>\n#include <vector>\n#include <string>\n#include <algorithm>\n\nusing namespace std;\n\n${code}`;
+        }
+        return code;
+      }
+    }
+
+    // Fallback: Try old format "LANG: code" on a single line or simple section
     const langPatterns: Record<string, string[]> = {
       'cpp': ['CPP:', 'C++:'],
       'c': ['C:'],
