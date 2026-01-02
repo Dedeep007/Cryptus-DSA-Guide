@@ -126,11 +126,15 @@ function CodeSubmissionSignature({ format, language }: { format: string; languag
 
     const langNamesForSelected = langNames[selectedLang] || [selectedLang.toUpperCase()];
 
+    // Helper to escape special regex characters
+    const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
     // Try to parse markdown format with code blocks first
     // Format: **CPP** followed by ```cpp ... ```
     for (const langName of langNamesForSelected) {
       // Pattern 1: **CPP** followed by code block
-      const markdownHeaderRegex = new RegExp(`\\*\\*${langName}\\*\\*[\\s\\S]*?\`\`\`(?:${selectedLang}|cpp|c|python|java|javascript)?\\n([\\s\\S]*?)\`\`\``, 'i');
+      const escapedLangName = escapeRegex(langName);
+      const markdownHeaderRegex = new RegExp(`\\*\\*${escapedLangName}\\*\\*[\\s\\S]*?\`\`\`(?:${selectedLang}|cpp|c|python|java|javascript)?\\n([\\s\\S]*?)\`\`\``, 'i');
       const markdownMatch = text.match(markdownHeaderRegex);
       if (markdownMatch && markdownMatch[1]) {
         return { lang: selectedLang.toUpperCase(), code: markdownMatch[1].trim() };
@@ -429,10 +433,14 @@ export default function ProblemView() {
 
     const langNamesForSelected = langNames[lang] || [lang.toUpperCase()];
 
+    // Helper to escape special regex characters
+    const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
     // Try to parse markdown format with code blocks first
     // Format: **CPP** followed by ```cpp ... ```
     for (const langName of langNamesForSelected) {
-      const markdownHeaderRegex = new RegExp(`\\*\\*${langName}\\*\\*[\\s\\S]*?\`\`\`(?:${lang}|cpp|c|python|java|javascript)?\\n([\\s\\S]*?)\`\`\``, 'i');
+      const escapedLangName = escapeRegex(langName);
+      const markdownHeaderRegex = new RegExp(`\\*\\*${escapedLangName}\\*\\*[\\s\\S]*?\`\`\`(?:${lang}|cpp|c|python|java|javascript)?\\n([\\s\\S]*?)\`\`\``, 'i');
       const markdownMatch = text.match(markdownHeaderRegex);
       if (markdownMatch && markdownMatch[1]) {
         const code = markdownMatch[1].trim();
